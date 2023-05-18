@@ -380,7 +380,7 @@ static void generic_dialog_setup(GenericDialog *gd,
 				 void (*cancel_cb)(GenericDialog *, gpointer), gpointer data)
 {
 	GtkWidget *vbox;
-	GtkWidget *scrolled;
+	//GtkWidget *scrolled;
 
 	gd->auto_close = auto_close;
 	gd->data = data;
@@ -389,7 +389,6 @@ static void generic_dialog_setup(GenericDialog *gd,
 	gd->dialog = window_new(role, nullptr, nullptr, title);
 	DEBUG_NAME(gd->dialog);
 	gtk_window_set_type_hint(GTK_WINDOW(gd->dialog), GDK_WINDOW_TYPE_HINT_DIALOG);
-
 	if (options->save_dialog_window_positions)
 		{
 		GdkRectangle rect;
@@ -427,13 +426,14 @@ static void generic_dialog_setup(GenericDialog *gd,
 	gtk_window_set_resizable(GTK_WINDOW(gd->dialog), TRUE);
 	gtk_container_set_border_width(GTK_CONTAINER(gd->dialog), PREF_PAD_BORDER);
 
-	scrolled = gq_gtk_scrolled_window_new(nullptr, nullptr);
-	gtk_scrolled_window_set_propagate_natural_height(GTK_SCROLLED_WINDOW(scrolled), TRUE);
-	gtk_scrolled_window_set_propagate_natural_width(GTK_SCROLLED_WINDOW(scrolled), TRUE);
+	/* scrolled = gtk_scrolled_window_new(NULL, NULL); */
+	/* gtk_scrolled_window_set_propagate_natural_height(GTK_SCROLLED_WINDOW(scrolled), TRUE); */
+	/* gtk_scrolled_window_set_propagate_natural_width(GTK_SCROLLED_WINDOW(scrolled), TRUE); */
 	vbox = gtk_box_new(GTK_ORIENTATION_VERTICAL, PREF_PAD_BUTTON_SPACE);
-	gq_gtk_container_add(GTK_WIDGET(scrolled), vbox);
-	gq_gtk_container_add(GTK_WIDGET(gd->dialog), scrolled);
-	gtk_widget_show(scrolled);
+	/* gtk_container_add(GTK_CONTAINER(scrolled), vbox); */
+	/* gtk_container_add(GTK_CONTAINER(gd->dialog), scrolled); */
+	/* gtk_widget_show(scrolled); */
+	gtk_container_add(GTK_CONTAINER(gd->dialog), vbox);
 
 	gtk_widget_show(vbox);
 
