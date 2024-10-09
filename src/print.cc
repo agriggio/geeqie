@@ -556,7 +556,7 @@ void draw_page(GtkPrintOperation *, GtkPrintContext *context, gint page_nr, gpoi
 
 		pango_layout_set_text(layout, text, text_len);
 
-		g_autoptr(PangoFontDescription) desc = pango_font_description_from_string(font);
+		/*g_autoptr(PangoFontDescription)*/ auto desc = pango_font_description_from_string(font);
 		pango_layout_set_font_description(layout, desc);
 
 		PangoRectangle ink_rect;
@@ -567,6 +567,8 @@ void draw_page(GtkPrintOperation *, GtkPrintContext *context, gint page_nr, gpoi
 
 		pango_layout_set_alignment(layout, PANGO_ALIGN_CENTER);
 		pango_layout_set_text(layout, text, text_len);
+
+                pango_font_description_free(desc);
 
 		return layout;
 	};

@@ -35,7 +35,7 @@
 
 #include <cstddef>
 
-#include <libraw/libraw.h>
+#include <libraw.h>
 
 #include "filefilter.h"
 #include "typedefs.h"

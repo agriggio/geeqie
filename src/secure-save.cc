@@ -182,7 +182,7 @@ secure_open_umask(const gchar *file_name)
 			return nullptr;
 		}
 
-		ssi->tmp_file_name = g_steal_pointer(&randname);
+		ssi->tmp_file_name = (gchar*)g_steal_pointer(&randname);
 	} else {
 		/* No need to create a temporary file here. */
 		ssi->fp = fopen(ssi->file_name, "wb");
@@ -194,7 +194,7 @@ secure_open_umask(const gchar *file_name)
 	}
 
 	file_name_watcher = nullptr;
-	return g_steal_pointer(&ssi);
+	return (SecureSaveInfo*)g_steal_pointer(&ssi);
 }
 
 SecureSaveInfo *

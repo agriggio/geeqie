@@ -639,7 +639,7 @@ gchar *cache_create_location(CacheType cache_type, const gchar *source)
 		return nullptr;
 		}
 
-	return g_steal_pointer(&path);
+	return (gchar*)g_steal_pointer(&path);
 }
 
 gchar *cache_get_location(CacheType cache_type, const gchar *source)
