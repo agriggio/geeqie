@@ -340,6 +340,9 @@ static void layout_path_entry_cb(const gchar *path, gpointer data)
 		parse_out_relatives(buf);
 
 		layout_set_path(lw, buf);
+
+                gtk_widget_grab_focus(lw->vd->widget);
+                
 		}
 
 	g_free(buf);
@@ -424,7 +427,7 @@ static GtkWidget *layout_tool_setup(LayoutWindow *lw)
 		gq_gtk_box_pack_start(GTK_BOX(lw->main_box), lw->menu_tool_bar, FALSE, FALSE, 0);
 		}
 
-	tabcomp = tab_completion_new_with_history(&lw->path_entry, nullptr, "path_list", -1, layout_path_entry_cb, lw);
+	tabcomp = tab_completion_new_with_history_ext(&lw->path_entry, &lw->path_entry_button, nullptr, "path_list", -1, layout_path_entry_cb, lw);
 	DEBUG_NAME(tabcomp);
 	tab_completion_add_tab_func(lw->path_entry, layout_path_entry_tab_cb, lw);
 	tab_completion_add_append_func(lw->path_entry, layout_path_entry_tab_append_cb, lw);
@@ -450,6 +453,7 @@ static GtkWidget *layout_tool_setup(LayoutWindow *lw)
 	g_signal_connect(G_OBJECT(tabcomp), "query_tooltip", G_CALLBACK(path_entry_tooltip_cb), lw);
 
 	g_signal_connect(G_OBJECT(gtk_widget_get_parent(gtk_widget_get_parent(lw->path_entry))), "changed", G_CALLBACK(layout_path_entry_changed_cb), lw);
+        
 
 	box_folders = GTK_WIDGET(gtk_paned_new(GTK_ORIENTATION_HORIZONTAL));
 	DEBUG_NAME(box_folders);
@@ -1144,6 +1148,17 @@ void layout_select_list(LayoutWindow *lw, GList *list)
 		vf_select_list(lw->vf, list);
 		}
 }
+
+
+void layout_select_path(LayoutWindow *lw)
+{
+    if (!layout_valid(&lw)) return;
+
+    if (lw->path_entry_button) {
+        gtk_button_clicked(GTK_BUTTON(lw->path_entry_button));
+    }
+}
+
 
 void layout_mark_to_selection(LayoutWindow *lw, gint mark, MarkToSelectionMode mode)
 {
@@ -1988,6 +2003,7 @@ void layout_style_set(LayoutWindow *lw, gint style, const gchar *order)
 	lw->v_pane = nullptr;
 
 	lw->path_entry = nullptr;
+        lw->path_entry_button = nullptr;
 	lw->dir_view = nullptr;
 	lw->vd = nullptr;
 

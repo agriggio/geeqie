@@ -1600,6 +1600,13 @@ static void layout_menu_invert_selection_cb(GtkAction *, gpointer data)
 	layout_select_invert(lw);
 }
 
+static void layout_menu_select_path_cb(GtkAction *, gpointer data)
+{
+	auto lw = static_cast<LayoutWindow *>(data);
+
+	layout_select_path(lw);
+}
+
 static void layout_menu_file_filter_cb(GtkToggleAction *action, gpointer data)
 {
 	auto lw = static_cast<LayoutWindow *>(data);
@@ -2781,6 +2788,7 @@ static GtkActionEntry menu_entries[] = {
   { "SearchAndRunCommand",   GQ_ICON_FIND,                      N_("Search and Run command"),                           "slash",               N_("Search commands by keyword and run them"),         CB(layout_menu_search_and_run_cb) },
   { "Search",                GQ_ICON_FIND,                      N_("_Search..."),                                       "F3",                  N_("Search..."),                                       CB(layout_menu_search_cb) },
   { "SelectAll",             PIXBUF_INLINE_ICON_SELECT_ALL,     N_("Select _all"),                                      "<control>A",          N_("Select all"),                                      CB(layout_menu_select_all_cb) },
+  { "SelectPath",    nullptr,      N_("_Select path"),                                  "<control>l",          N_("Select path"),                                  CB(layout_menu_select_path_cb) },  
   { "SelectInvert",          PIXBUF_INLINE_ICON_SELECT_INVERT,  N_("_Invert Selection"),                                "<control><shift>I",   N_("Invert Selection"),                                CB(layout_menu_invert_selection_cb) },
   { "SelectMenu",            nullptr,                           N_("_Select"),                                          nullptr,               nullptr,                                               nullptr },
   { "SelectNone",            PIXBUF_INLINE_ICON_SELECT_NONE,    N_("Select _none"),                                     "<control><shift>A",   N_("Select none"),                                     CB(layout_menu_unselect_all_cb) },

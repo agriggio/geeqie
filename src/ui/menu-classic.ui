@@ -133,6 +133,7 @@
           <separator/>
           <menuitem action="FloatTools"/>
           <menuitem action="HideTools"/>
+          <menuitem action="SelectPath"/>
         </menu>
         <placeholder name="DirSection"/>
         <separator/>

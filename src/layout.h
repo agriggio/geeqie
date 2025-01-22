@@ -76,6 +76,7 @@ struct LayoutWindow
 	GList *toolbar_actions[TOOLBAR_COUNT];
 
 	GtkWidget *path_entry;
+        GtkWidget *path_entry_button;
 
 	/* image */
 
@@ -202,6 +203,8 @@ void layout_select_all(LayoutWindow *lw);
 void layout_select_none(LayoutWindow *lw);
 void layout_select_invert(LayoutWindow *lw);
 void layout_select_list(LayoutWindow *lw, GList *list);
+
+void layout_select_path(LayoutWindow *lw);
 
 void layout_mark_to_selection(LayoutWindow *lw, gint mark, MarkToSelectionMode mode);
 void layout_selection_to_mark(LayoutWindow *lw, gint mark, SelectionToMarkMode mode);

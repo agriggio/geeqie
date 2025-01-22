@@ -28,6 +28,9 @@
 GtkWidget *tab_completion_new_with_history(GtkWidget **entry, const gchar *text,
 					   const gchar *history_key, gint max_levels,
 					   void (*enter_func)(const gchar *, gpointer), gpointer data);
+GtkWidget *tab_completion_new_with_history_ext(GtkWidget **entry, GtkWidget **button, const gchar *text,
+					   const gchar *history_key, gint max_levels,
+					   void (*enter_func)(const gchar *, gpointer), gpointer data);
 const gchar *tab_completion_set_to_last_history(GtkWidget *entry);
 void tab_completion_append_to_history(GtkWidget *entry, const gchar *path);
 

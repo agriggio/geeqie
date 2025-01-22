@@ -620,6 +620,14 @@ GtkWidget *tab_completion_new_with_history(GtkWidget **entry, const gchar *text,
 					   const gchar *history_key, gint max_levels,
 					   void (*enter_func)(const gchar *, gpointer), gpointer data)
 {
+    return tab_completion_new_with_history_ext(entry, nullptr, text, history_key, max_levels, enter_func, data);
+}
+
+
+GtkWidget *tab_completion_new_with_history_ext(GtkWidget **entry, GtkWidget **btn, const gchar *text,
+					   const gchar *history_key, gint max_levels,
+					   void (*enter_func)(const gchar *, gpointer), gpointer data)
+{
 	GtkWidget *box;
 	GtkWidget *combo;
 	GtkWidget *combo_entry;
@@ -668,6 +676,7 @@ GtkWidget *tab_completion_new_with_history(GtkWidget **entry, const gchar *text,
 		}
 
 	if (entry) *entry = combo_entry;
+        if (btn) *btn = button;
 	return box;
 }
 
