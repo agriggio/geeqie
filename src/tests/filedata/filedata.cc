@@ -22,8 +22,8 @@
  *
  */
 
-#include "gtest/gtest.h"
 #include "gmock/gmock.h"
+#include "gtest/gtest.h"
 
 #include <string>
 #include <utility>
@@ -80,9 +80,8 @@ TEST_F(FileDataTest, text_from_size_test)
 
 	for (const auto &test_case : test_cases)
 	{
-		gchar *generated = FileData::text_from_size(test_case.first);
+		g_autofree gchar *generated = FileData::text_from_size(test_case.first);
 		ASSERT_EQ(test_case.second, std::string(generated));
-		g_free(generated);
 	}
 }
 
@@ -113,9 +112,8 @@ TEST_F(FileDataTest, text_from_size_abrev_test)
 
 	for (const auto &test_case : test_cases)
 	{
-		gchar* generated = FileData::text_from_size_abrev(test_case.first);
+		g_autofree gchar *generated = FileData::text_from_size_abrev(test_case.first);
 		ASSERT_EQ(test_case.second, std::string(generated));
-		g_free(generated);
 	}
 }
 

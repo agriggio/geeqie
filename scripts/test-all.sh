@@ -51,7 +51,9 @@ meson setup \
 -Devince=disabled \
 -Dexecinfo=disabled \
 -Dexiv2=disabled \
+-Dexr=disabled \
 -Dextended_stacktrace=disabled \
+-Dfits=disabled \
 -Dgit=disabled \
 -Dgps-map=disabled \
 -Dgtk4=disabled \
@@ -62,6 +64,7 @@ meson setup \
 -Djpegxl=disabled \
 -Dlibraw=disabled \
 -Dlua=disabled \
+-Dnpy=disabled \
 -Dpandoc=disabled \
 -Dpdf=disabled \
 -Dspell=disabled \

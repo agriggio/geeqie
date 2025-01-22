@@ -31,7 +31,6 @@
 #include "collect.h"
 #include "color-man.h"
 #include "compat.h"
-#include "debug.h"
 #include "exif.h"
 #include "filecache.h"
 #include "filedata.h"
@@ -56,12 +55,38 @@ static void image_read_ahead_start(ImageWindow *imd);
 static void image_cache_set(ImageWindow *imd, FileData *fd);
 
 // For draw rectangle function
-static gint pixbuf_start_x;
-static gint pixbuf_start_y;
 static gint image_start_x;
 static gint image_start_y;
 static gint rect_x1, rect_x2, rect_y1, rect_y2;
 static gint rect_id = 0;
+static SelectionRectangle selection_rectangle;
+
+/*
+ * SelectionRectangle
+ */
+
+void SelectionRectangle::setCursor(gint x, gint y) {
+	this->cursor_x = x;
+	this->cursor_y = y;
+	this->x = std::min(origin_x, cursor_x);
+	this->y = std::min(origin_y, cursor_y);
+	this->width = std::abs(x - origin_x);
+	this->height = std::abs(y - origin_y);
+
+	if (aspect_ratio != 0.0)
+		{
+		if (width < height)
+			this->width = height / aspect_ratio;
+		else
+			this->height = width / aspect_ratio;
+		// left side of the origin: move x to respect that origin
+		if (cursor_x < origin_x)
+			this->x = origin_x - width;
+		// above the origin: move y
+		if (cursor_y < origin_y)
+			this->y = origin_y - height;
+		}
+	}
 
 /*
  *-------------------------------------------------------------------
@@ -159,29 +184,10 @@ static void image_press_cb(PixbufRenderer *pr, GdkEventButton *event, gpointer d
 	if(options->draw_rectangle)
 		{
 		pixbuf_renderer_get_mouse_position(pr, &x_pixel, &y_pixel);
-
-		pixbuf_start_x = event->x;
-		pixbuf_start_y = event->y;
-
-		if (x_pixel == -1)
-			{
-			image_start_x = 0;
-			}
-		else
-			{
-			image_start_x = x_pixel;
-			}
-
-		if (y_pixel == -1)
-			{
-			image_start_y = 0;
-			}
-		else
-			{
-			image_start_y = y_pixel;
-			}
+		selection_rectangle = SelectionRectangle(std::max(0, gint(event->x)), std::max(0, gint(event->y)), options->rectangle_draw_aspect_ratio);
+		image_start_x = std::max(0, x_pixel);
+		image_start_y = std::max(0, y_pixel);
 		}
-
 	if (rect_id)
 		{
 		pixbuf_renderer_overlay_remove(PIXBUF_RENDERER(imd->pr), rect_id);
@@ -217,16 +223,15 @@ static void image_release_cb(PixbufRenderer *, GdkEventButton *event, gpointer d
 static void image_drag_cb(PixbufRenderer *pr, GdkEventMotion *event, gpointer data)
 {
 	auto imd = static_cast<ImageWindow *>(data);
-	gdouble aspect_ratio = 0.0;
 	gint width;
 	gint height;
-	gint rect_width;
-	gint rect_height;
 	GdkPixbuf *rect_pixbuf;
 	gint x_pixel;
 	gint y_pixel;
 	gint image_x_pixel;
 	gint image_y_pixel;
+
+	selection_rectangle.setCursor(event->x, event->y);
 
 	if (options->draw_rectangle)
 		{
@@ -253,34 +258,13 @@ static void image_drag_cb(PixbufRenderer *pr, GdkEventMotion *event, gpointer da
 
 		if (options->rectangle_draw_aspect_ratio != RECTANGLE_DRAW_ASPECT_RATIO_NONE)
 			{
-			switch (options->rectangle_draw_aspect_ratio)
+			if (gdouble(image_x_pixel - image_start_x) / (image_y_pixel - image_start_y) < selection_rectangle.aspect_ratio)
 				{
-				case RECTANGLE_DRAW_ASPECT_RATIO_ONE_ONE:
-					aspect_ratio = 1.0;
-					break;
-				case RECTANGLE_DRAW_ASPECT_RATIO_FOUR_THREE:
-					aspect_ratio = gdouble(4) / 3;
-					break;
-				case RECTANGLE_DRAW_ASPECT_RATIO_THREE_TWO:
-					aspect_ratio = gdouble(3) / 2;
-					break;
-				case RECTANGLE_DRAW_ASPECT_RATIO_SIXTEEN_NINE:
-					aspect_ratio = gdouble(16) / 9;
-					break;
-				default:
-					aspect_ratio = 1.0;
-				}
-			}
-
-		if (options->rectangle_draw_aspect_ratio != RECTANGLE_DRAW_ASPECT_RATIO_NONE)
-			{
-			if (gdouble(image_x_pixel - image_start_x) / (image_y_pixel - image_start_y) < aspect_ratio)
-				{
-				image_x_pixel = image_start_x + ((image_y_pixel - image_start_y) * aspect_ratio);
+				image_x_pixel = image_start_x + ((image_y_pixel - image_start_y) * selection_rectangle.aspect_ratio);
 				}
 			else
 				{
-				image_y_pixel = image_start_y + ((image_x_pixel - image_start_x) / aspect_ratio);
+				image_y_pixel = image_start_y + ((image_x_pixel - image_start_x) / selection_rectangle.aspect_ratio);
 				}
 			}
 
@@ -291,42 +275,25 @@ static void image_drag_cb(PixbufRenderer *pr, GdkEventMotion *event, gpointer da
 			pixbuf_renderer_overlay_remove(PIXBUF_RENDERER(imd->pr), rect_id);
 			}
 
-		rect_width = pr->drag_last_x - pixbuf_start_x;
-		if (rect_width <= 0)
-			{
-			rect_width = 1;
-			}
-		rect_height = pr->drag_last_y - pixbuf_start_y;
-		if (rect_height <= 0)
-			{
-			rect_height = 1;
-			}
+		if (selection_rectangle.height <= 0)
+			selection_rectangle.height = 1;
+		if (selection_rectangle.width <= 0)
+			selection_rectangle.width = 1;
 
-		if (options->rectangle_draw_aspect_ratio != RECTANGLE_DRAW_ASPECT_RATIO_NONE)
-			{
-			if (gdouble(rect_width) / rect_height < aspect_ratio)
-				{
-				rect_width = gdouble(rect_height) * aspect_ratio;
-				}
-			else
-				{
-				rect_height = rect_width / aspect_ratio;
-				}
-			}
+		// decorative border
+		rect_pixbuf = gdk_pixbuf_new(GDK_COLORSPACE_RGB, TRUE, 8, selection_rectangle.width, selection_rectangle.height);
+		pixbuf_set_rect_fill(rect_pixbuf, 0, 0, selection_rectangle.width, selection_rectangle.height, 255, 255, 255, 0);
+		pixbuf_set_rect(rect_pixbuf, 1, 1, selection_rectangle.width-2, selection_rectangle.height - 2, 0, 0, 0, 255, 1, 1, 1, 1);
+		pixbuf_set_rect(rect_pixbuf, 0, 0, selection_rectangle.width, selection_rectangle.height, 255, 255, 255, 255, 1, 1, 1, 1);
 
-		rect_pixbuf = gdk_pixbuf_new(GDK_COLORSPACE_RGB, TRUE, 8, rect_width, rect_height);
-		pixbuf_set_rect_fill(rect_pixbuf, 0, 0, rect_width, rect_height, 255, 255, 255, 0);
-		pixbuf_set_rect(rect_pixbuf, 1, 1, rect_width-2, rect_height - 2, 0, 0, 0, 255, 1, 1, 1, 1);
-		pixbuf_set_rect(rect_pixbuf, 0, 0, rect_width, rect_height, 255, 255, 255, 255, 1, 1, 1, 1);
-
-		rect_id = pixbuf_renderer_overlay_add(PIXBUF_RENDERER(imd->pr), rect_pixbuf, pixbuf_start_x, pixbuf_start_y, OVL_NORMAL);
+		rect_id = pixbuf_renderer_overlay_add(PIXBUF_RENDERER(imd->pr), rect_pixbuf, selection_rectangle.x, selection_rectangle.y, OVL_NORMAL);
 		}
 
 	pixbuf_renderer_get_scaled_size(pr, &width, &height);
 
 	if (imd->func_drag)
 		{
-		imd->func_drag(imd, event, static_cast<gfloat>(pr->drag_last_x - event->x) / width, static_cast<gfloat>(pr->drag_last_y - event->y) / height, imd->data_button);
+		imd->func_drag(imd, event, static_cast<gfloat>(selection_rectangle.x) / selection_rectangle.width, static_cast<gfloat>(selection_rectangle.y) / selection_rectangle.height, imd->data_button);
 		}
 }
 
@@ -339,8 +306,8 @@ static void image_scroll_notify_cb(PixbufRenderer *pr, gpointer data)
 		imd->func_scroll_notify(imd,
 					static_cast<gint>(static_cast<gdouble>(pr->x_scroll) / pr->scale),
 					static_cast<gint>(static_cast<gdouble>(pr->y_scroll) / pr->scale),
-					static_cast<gint>(static_cast<gdouble>(pr->image_width) - pr->vis_width / pr->scale),
-					static_cast<gint>(static_cast<gdouble>(pr->image_height) - pr->vis_height / pr->scale),
+					static_cast<gint>(static_cast<gdouble>(pr->image_width) - (pr->vis_width / pr->scale)),
+					static_cast<gint>(static_cast<gdouble>(pr->image_height) - (pr->vis_height / pr->scale)),
 					imd->data_scroll_notify);
 		}
 }
@@ -466,9 +433,7 @@ static gboolean image_post_process_color(ImageWindow *imd, gint start_row, gbool
 	ColorManProfileType screen_type;
 	const gchar *input_file = nullptr;
 	const gchar *screen_file = nullptr;
-	guchar *profile = nullptr;
 	guint profile_len;
-	guchar *screen_profile = nullptr;
 	gint screen_profile_len;
 	ExifData *exif;
 
@@ -495,6 +460,7 @@ static gboolean image_post_process_color(ImageWindow *imd, gint start_row, gbool
 		return FALSE;
 		}
 
+	g_autofree guchar *screen_profile = nullptr;
 	if (options->color_profile.use_x11_screen_profile &&
 	    image_get_x11_screen_profile(imd, &screen_profile, &screen_profile_len))
 		{
@@ -516,8 +482,9 @@ static gboolean image_post_process_color(ImageWindow *imd, gint start_row, gbool
 
 	imd->color_profile_from_image = COLOR_PROFILE_NONE;
 
-	exif = exif_read_fd(imd->image_fd);
+	g_autofree guchar *profile = nullptr;
 
+	exif = exif_read_fd(imd->image_fd);
 	if (exif)
 		{
 		if (g_strcmp0(imd->image_fd->format_name, "heif") == 0)
@@ -542,7 +509,7 @@ static gboolean image_post_process_color(ImageWindow *imd, gint start_row, gbool
 			}
 		else
 			{
-			gchar *interop_index = exif_get_data_as_text(exif, "Exif.Iop.InteroperabilityIndex");
+			g_autofree gchar *interop_index = exif_get_data_as_text(exif, "Exif.Iop.InteroperabilityIndex");
 
 			if (interop_index)
 				{
@@ -557,7 +524,6 @@ static gboolean image_post_process_color(ImageWindow *imd, gint start_row, gbool
 					imd->color_profile_from_image = COLOR_PROFILE_ADOBERGB;
 					DEBUG_1("Found EXIF 2.21 ColorSpace of AdobeRGB");
 					}
-				g_free(interop_index);
 				}
 			else
 				{
@@ -579,10 +545,10 @@ static gboolean image_post_process_color(ImageWindow *imd, gint start_row, gbool
 				}
 
 			if (imd->color_profile_use_image && imd->color_profile_from_image != COLOR_PROFILE_NONE)
-                               {
-                               input_type = static_cast<ColorManProfileType>(imd->color_profile_from_image);
-                               input_file = nullptr;
-                               }
+				{
+				input_type = static_cast<ColorManProfileType>(imd->color_profile_from_image);
+				input_file = nullptr;
+				}
 			}
 
 		exif_free_fd(imd->image_fd, exif);
@@ -594,7 +560,6 @@ static gboolean image_post_process_color(ImageWindow *imd, gint start_row, gbool
 		cm = color_man_new_embedded(run_in_bg ? imd : nullptr, nullptr,
 					    profile, profile_len,
 					    screen_type, screen_file, screen_profile, screen_profile_len);
-		g_free(profile);
 		}
 	else
 		{
@@ -615,12 +580,6 @@ static gboolean image_post_process_color(ImageWindow *imd, gint start_row, gbool
 		}
 
 	image_update_util(imd);
-
-	if (screen_profile)
-		{
-		g_free(screen_profile);
-		screen_profile = nullptr;
-		}
 
 	return !!cm;
 }

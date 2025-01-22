@@ -1744,11 +1744,6 @@ msgstr "Lăţime"
 msgid "Height"
 msgstr "Înălţime"
 
-#: src/dupe.cc:5150
-#, fuzzy
-msgid "Path\n"
-msgstr "Cale"
-
 #: src/dupe.cc:5249
 msgid "Export duplicates data"
 msgstr ""
@@ -8943,15 +8938,6 @@ msgstr ""
 
 #~ msgid "View as _Icons"
 #~ msgstr "Afișează ca _icon-uri"
-
-#~ msgid "UFRaw Batch"
-#~ msgstr "Batch UFRaw"
-
-#~ msgid "Edit UFRaw ID file"
-#~ msgstr "Editează fișierul ID al UFRaw"
-
-#~ msgid "UFRaw Batch recursive"
-#~ msgstr "Batch UFRaw recursiv"
 
 #, fuzzy
 #~ msgid "_Show Guidelines"

@@ -37,7 +37,6 @@
 #include <tiff.h>
 #include <tiffio.h>
 
-#include "debug.h"
 #include "image-load.h"
 
 namespace
@@ -262,7 +261,7 @@ gboolean ImageLoaderTiff::write(const guchar *buf, gsize &chunk_size, gsize coun
 		/* read by strip */
 		ptrdiff_t row;
 		const size_t line_bytes = width * sizeof(guint32);
-		auto wrk_line = static_cast<guchar *>(g_malloc(line_bytes));
+		g_autofree auto *wrk_line = static_cast<guchar *>(g_malloc(line_bytes));
 
 		for (row = 0; row < height; row += rowsperstrip)
 			{
@@ -274,7 +273,7 @@ gboolean ImageLoaderTiff::write(const guchar *buf, gsize &chunk_size, gsize coun
 			}
 
 			/* Read the strip into an RGBA array */
-			if (!TIFFReadRGBAStrip(tiff, row, reinterpret_cast<guint32 *>(pixels + row * rowstride))) {
+			if (!TIFFReadRGBAStrip(tiff, row, reinterpret_cast<guint32 *>(pixels + (row * rowstride)))) {
 				break;
 			}
 
@@ -304,7 +303,6 @@ gboolean ImageLoaderTiff::write(const guchar *buf, gsize &chunk_size, gsize coun
 				}
 			area_updated_cb(nullptr, 0, row, width, rows_to_write, data);
 			}
-		g_free(wrk_line);
 		}
 	else
 		{

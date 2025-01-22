@@ -76,7 +76,7 @@ static void nikon_tiff_entry(guchar *data, const guint len, guint offset, ExifBy
 			{
 			guint subset;
 
-			subset = exif_byte_get_int32(data + segment + i * 4, bo);
+			subset = exif_byte_get_int32(data + segment + (i * 4), bo);
 			nikon_tiff_table(data, len, subset, bo, level + 1, image_offset, image_length);
 			}
 
@@ -113,7 +113,7 @@ static guint nikon_tiff_table(guchar *data, const guint len, guint offset, ExifB
 
 	for (i = 0; i < count; i++)
 		{
-		nikon_tiff_entry(data, len, offset + i * EXIF_TIFD_SIZE, bo, level,
+		nikon_tiff_entry(data, len, offset + (i * EXIF_TIFD_SIZE), bo, level,
 				 image_offset, image_length, &jpeg_start, &jpeg_len);
 		}
 
@@ -124,7 +124,7 @@ static guint nikon_tiff_table(guchar *data, const guint len, guint offset, ExifB
 		*image_length = jpeg_len;
 		}
 
-	return exif_byte_get_int32(data + offset + count * EXIF_TIFD_SIZE, bo);
+	return exif_byte_get_int32(data + offset + (count * EXIF_TIFD_SIZE), bo);
 }
 
 gboolean format_nikon_raw(guchar *data, const guint len,
@@ -379,16 +379,13 @@ gboolean format_nikon_makernote(ExifData *exif, guchar *tiff, guint offset,
 		static ExifMarker marker = { 0x0088, EXIF_FORMAT_STRING, -1,
 					     "Nikon.AutoFocusPoint", "Auto focus point", nullptr };
 		auto array = static_cast<guchar*>(item->data);
-		gchar *text;
 		gint l;
 
-		text = exif_text_list_find_value(NikonAFPoint, static_cast<gint>(array[1]));
+		g_autofree gchar *text = exif_text_list_find_value(NikonAFPoint, static_cast<gint>(array[1]));
 		l = strlen(text) + 1;
 
 		item = exif_item_new(marker.format, marker.tag, l, &marker);
 		memcpy(item->data, text, l);
-
-		g_free(text);
 
 		exif->items = g_list_prepend(exif->items, item);
 		}

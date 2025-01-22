@@ -40,9 +40,8 @@ void print_term(gboolean err, const gchar *text_utf8);
 #define printf_term(err, ...) \
 	G_STMT_START \
 		{ \
-		gchar *msg = g_strdup_printf(__VA_ARGS__); \
+		g_autofree gchar *msg = g_strdup_printf(__VA_ARGS__); \
 		print_term(err, msg); \
-		g_free(msg); \
 		} \
 	G_STMT_END
 
@@ -106,11 +105,13 @@ gboolean recursive_mkdir_if_not_exists(const gchar *path, mode_t mode);
 gchar *md5_text_from_file_utf8(const gchar *path, const gchar *error_text);
 gboolean md5_get_digest_from_file_utf8(const gchar *path, guchar digest[16]);
 
-gboolean download_web_file(const gchar *text, gboolean minimized, gpointer data);
+gchar *download_web_file(const gchar *text, gboolean minimized, gpointer data);
 gboolean rmdir_recursive(GFile *file, GCancellable *cancellable, GError **error);
 gint scale_factor();
 
 guchar *map_file(const gchar *path, gsize &map_len);
+
+void pixbuf_gdk_known_extensions(GList **extensions_list);
 
 #endif
 /* vim: set shiftwidth=8 softtabstop=0 cindent cinoptions={1s: */

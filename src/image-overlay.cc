@@ -21,7 +21,9 @@
 
 #include "image-overlay.h"
 
+#include <algorithm>
 #include <cstring>
+#include <string>
 
 #include <gdk-pixbuf/gdk-pixbuf.h>
 #include <glib-object.h>
@@ -29,7 +31,6 @@
 #include <pango/pango.h>
 
 #include "collect.h"
-#include "debug.h"
 #include "filedata.h"
 #include "histogram.h"
 #include "image-load.h"
@@ -46,13 +47,6 @@
 #include "typedefs.h"
 #include "ui-fileops.h"
 
-namespace
-{
-
-constexpr gint IMAGE_OSD_DEFAULT_DURATION = 30;
-
-} // namespace
-
 struct HistMap;
 
 /*
@@ -61,6 +55,8 @@ struct HistMap;
  *----------------------------------------------------------------------------
  */
 
+namespace
+{
 
 struct OverlayStateData {
 	ImageWindow *imd;
@@ -85,7 +81,6 @@ struct OverlayStateData {
 	gulong destroy_id;
 };
 
-
 struct OSDIcon {
 	gboolean reset;	/* reset on new image */
 	gint x;		/* x, y offset */
@@ -93,7 +88,7 @@ struct OSDIcon {
 	gchar *key;	/* inline pixbuf */
 };
 
-static OSDIcon osd_icons[] = {
+const OSDIcon osd_icons[] = {
 	{  TRUE,   0,   0, nullptr },			/* none */
 	{  TRUE, -10, -10, nullptr },			/* auto rotated */
 	{  TRUE, -10, -10, nullptr },			/* user rotated */
@@ -104,36 +99,14 @@ static OSDIcon osd_icons[] = {
 	{ FALSE, 0, 0, nullptr }
 };
 
-#define OSD_DATA "overlay-data"
+constexpr gint HISTOGRAM_WIDTH = 256;
+constexpr gint HISTOGRAM_HEIGHT = 140;
 
-enum {
-	HISTOGRAM_HEIGHT = 140,
-	HISTOGRAM_WIDTH =  256
-};
+constexpr gint IMAGE_OSD_DEFAULT_DURATION = 30;
+
+} // namespace
 
 static void image_osd_timer_schedule(OverlayStateData *osd);
-
-void set_image_overlay_template_string(gchar **template_string, const gchar *value)
-{
-	g_assert(template_string);
-
-	g_free(*template_string);
-	*template_string = g_strdup(value);
-}
-
-
-void set_default_image_overlay_template_string(gchar **template_string)
-{
-	set_image_overlay_template_string(template_string, DEFAULT_OVERLAY_INFO);
-}
-
-void set_image_overlay_font_string(gchar **font_string, const gchar *value)
-{
-	g_assert(font_string);
-
-	g_free(*font_string);
-	*font_string = g_strdup(value);
-}
 
 static OverlayStateData *image_get_osd_data(ImageWindow *imd)
 {
@@ -248,7 +221,6 @@ static GdkPixbuf *image_osd_info_render(OverlayStateData *osd)
 	gint height;
 	PangoLayout *layout;
 	const gchar *name;
-	gchar *text;
 	gboolean with_hist;
 	const HistMap *histmap = nullptr;
 	ImageWindow *imd = osd->imd;
@@ -257,6 +229,7 @@ static GdkPixbuf *image_osd_info_render(OverlayStateData *osd)
 
 	if (!fd) return nullptr;
 
+	g_autofree gchar *text = nullptr;
 	name = image_get_name(imd);
 	if (name)
 		{
@@ -264,9 +237,7 @@ static GdkPixbuf *image_osd_info_render(OverlayStateData *osd)
 		gint t;
 		CollectionData *cd;
 		CollectInfo *info;
-		GHashTable *vars;
-
-		vars = g_hash_table_new_full(g_str_hash, g_str_equal, nullptr, g_free);
+		OsdTemplate vars;
 
 		cd = image_get_collection(imd, &info);
 		if (cd)
@@ -276,13 +247,18 @@ static GdkPixbuf *image_osd_info_render(OverlayStateData *osd)
 			if (cd->name)
 				{
 				if (file_extension_match(cd->name, GQ_COLLECTION_EXT))
-					osd_template_insert(vars, "collection", remove_extension_from_path(cd->name), OSDT_FREE);
+					{
+					g_autofree gchar *collection_str = remove_extension_from_path(cd->name);
+					osd_template_insert(vars, "collection", collection_str);
+					}
 				else
-					osd_template_insert(vars, "collection", cd->name, OSDT_NONE);
+					{
+					osd_template_insert(vars, "collection", cd->name);
+					}
 				}
 			else
 				{
-				osd_template_insert(vars, "collection", _("Untitled"), OSDT_NONE);
+				osd_template_insert(vars, "collection", _("Untitled"));
 				}
 			}
 		else
@@ -312,19 +288,23 @@ static GdkPixbuf *image_osd_info_render(OverlayStateData *osd)
 				n = 1;
 				}
 
-			if (n < 1) n = 1;
-			if (t < 1) t = 1;
+			n = std::max(n, 1);
+			t = std::max(t, 1);
 
-			osd_template_insert(vars, "collection", nullptr, OSDT_NONE);
+			osd_template_insert(vars, "collection", nullptr);
 			}
 
-		osd_template_insert(vars, "number", g_strdup_printf("%d", n), OSDT_NO_DUP);
-		osd_template_insert(vars, "total", g_strdup_printf("%d", t), OSDT_NO_DUP);
-		osd_template_insert(vars, "name", const_cast<gchar *>(name), OSDT_NONE);
-		osd_template_insert(vars, "path", image_get_path(imd), OSDT_NONE);
-		osd_template_insert(vars, "date", imd->image_fd ? (const_cast<gchar *>(text_from_time(imd->image_fd->date))) : "", OSDT_NONE);
-		osd_template_insert(vars, "size", imd->image_fd ? (text_from_size_abrev(imd->image_fd->size)) : g_strdup(""), OSDT_FREE);
-		osd_template_insert(vars, "zoom", image_zoom_get_as_text(imd), OSDT_FREE);
+		osd_template_insert(vars, "number", std::to_string(n).c_str());
+		osd_template_insert(vars, "total", std::to_string(t).c_str());
+		osd_template_insert(vars, "name", name);
+		osd_template_insert(vars, "path", image_get_path(imd));
+		osd_template_insert(vars, "date", imd->image_fd ? text_from_time(imd->image_fd->date) : "");
+
+		g_autofree gchar *size_str = imd->image_fd ? text_from_size_abrev(imd->image_fd->size) : nullptr;
+		osd_template_insert(vars, "size", size_str);
+
+		g_autofree gchar *zoom_str = image_zoom_get_as_text(imd);
+		osd_template_insert(vars, "zoom", zoom_str);
 
 		if (!imd->unknown)
 			{
@@ -345,20 +325,20 @@ static GdkPixbuf *image_osd_info_render(OverlayStateData *osd)
 				}
 
 
-			osd_template_insert(vars, "width", g_strdup_printf("%d", w), OSDT_NO_DUP);
-	 		osd_template_insert(vars, "height", g_strdup_printf("%d", h), OSDT_NO_DUP);
-	 		osd_template_insert(vars, "res", g_strdup_printf("%d × %d", w, h), OSDT_FREE);
+			osd_template_insert(vars, "width", std::to_string(w).c_str());
+			osd_template_insert(vars, "height", std::to_string(h).c_str());
+
+			g_autofree gchar *res_str = g_strdup_printf("%d × %d", w, h);
+			osd_template_insert(vars, "res", res_str);
 	 		}
 		else
 			{
-			osd_template_insert(vars, "width", nullptr, OSDT_NONE);
-	 		osd_template_insert(vars, "height", nullptr, OSDT_NONE);
-	 		osd_template_insert(vars, "res", nullptr, OSDT_NONE);
+			osd_template_insert(vars, "width", nullptr);
+			osd_template_insert(vars, "height", nullptr);
+			osd_template_insert(vars, "res", nullptr);
 			}
 
 		text = image_osd_mkinfo(options->image_overlay.template_string, imd->image_fd, vars);
-		g_hash_table_destroy(vars);
-
 	} else {
 		/* When does this occur ?? */
 		text = g_markup_escape_text(_("Untitled"), -1);
@@ -379,7 +359,6 @@ static GdkPixbuf *image_osd_info_render(OverlayStateData *osd)
 	{
 		gint active_marks = 0;
 		gint mark;
-		gchar *text2;
 
 		for (mark = 0; mark < FILEDATA_MARKS_SIZE; mark++)
 			{
@@ -388,7 +367,7 @@ static GdkPixbuf *image_osd_info_render(OverlayStateData *osd)
 
 		if (active_marks > 0)
 			{
-			GString *buf = g_string_sized_new(strlen(text) + 1 + FILEDATA_MARKS_SIZE * 2);
+			GString *buf = g_string_sized_new(strlen(text) + 1 + (FILEDATA_MARKS_SIZE * 2));
 
 			if (*text)
 				{
@@ -406,23 +385,21 @@ static GdkPixbuf *image_osd_info_render(OverlayStateData *osd)
 
 		if (with_hist)
 			{
-			gchar *escaped_histogram_label = g_markup_escape_text(histogram_label(osd->histogram), -1);
+			g_autofree gchar *escaped_histogram_label = g_markup_escape_text(histogram_label(osd->histogram), -1);
+			g_autofree gchar *text2 = nullptr;
 			if (*text)
 				text2 = g_strdup_printf("%s\n%s", text, escaped_histogram_label);
 			else
-				text2 = g_strdup(escaped_histogram_label);
-			g_free(escaped_histogram_label);
-			g_free(text);
-			text = text2;
+                                text2 = (gchar *)g_steal_pointer(&escaped_histogram_label);
+			std::swap(text, text2);
 			}
 	}
 
 	font_desc = pango_font_description_from_string(options->image_overlay.font);
 	layout = gtk_widget_create_pango_layout(imd->pr, nullptr);
-	pango_layout_set_font_description(layout, font_desc);
 
+	pango_layout_set_font_description(layout, font_desc);
 	pango_layout_set_markup(layout, text, -1);
-	g_free(text);
 
 	pango_layout_get_pixel_size(layout, &width, &height);
 	/* with empty text width is set to 0, but not height) */
@@ -435,7 +412,7 @@ static GdkPixbuf *image_osd_info_render(OverlayStateData *osd)
 
 	if (with_hist)
 		{
-		if (width < HISTOGRAM_WIDTH + 10) width = HISTOGRAM_WIDTH + 10;
+		width = std::max(width, HISTOGRAM_WIDTH + 10);
 		height += HISTOGRAM_HEIGHT + 5;
 		}
 
@@ -653,11 +630,9 @@ static gboolean image_osd_update_cb(gpointer data)
 
 	if (osd->show & OSD_SHOW_INFO)
 		{
-		/* redraw when the image was changed,
+		/* redraw when the image or metadata was changed,
 		   with histogram we have to redraw also when loading is finished */
-		if (osd->changed_states & IMAGE_STATE_IMAGE ||
-		    (osd->changed_states & IMAGE_STATE_LOADING && osd->show & OSD_SHOW_HISTOGRAM) ||
-		    osd->notify & NOTIFY_HISTMAP)
+		if (osd->changed_states & IMAGE_STATE_IMAGE || (osd->changed_states & IMAGE_STATE_LOADING && osd->show & OSD_SHOW_HISTOGRAM) || osd->notify & NOTIFY_HISTMAP || osd->notify & NOTIFY_METADATA)
 			{
 			GdkPixbuf *pixbuf;
 
@@ -790,7 +765,7 @@ static void image_osd_notify_cb(FileData *fd, NotifyType type, gpointer data)
 {
 	auto osd = static_cast<OverlayStateData *>(data);
 
-	if ((type & (NOTIFY_HISTMAP)) && osd->imd && fd == osd->imd->image_fd)
+	if (((type & NOTIFY_HISTMAP) || (type & NOTIFY_METADATA)) && osd->imd && fd == osd->imd->image_fd)
 		{
 		DEBUG_1("Notify osd: %s %04x", fd->path, type);
 		osd->notify = static_cast<NotifyType>(osd->notify | type);

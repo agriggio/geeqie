@@ -1709,10 +1709,6 @@ msgstr "Width"
 msgid "Height"
 msgstr "Height"
 
-#: src/dupe.cc:5150
-msgid "Path\n"
-msgstr "Path\n"
-
 #: src/dupe.cc:5249
 msgid "Export duplicates data"
 msgstr ""
@@ -8687,24 +8683,6 @@ msgstr ""
 
 #~ msgid "View as _Icons"
 #~ msgstr "View as _Icons"
-
-#~ msgid "UFRaw Batch"
-#~ msgstr "UFRaw Batch"
-
-#~ msgid "Search for new RAW files or modified UFRaw ID files"
-#~ msgstr "Search for new RAW files or modified UFRaw ID files"
-
-#~ msgid "Edit UFRaw ID file"
-#~ msgstr "Edit UFRaw ID file"
-
-#~ msgid "Create UFRaw ID files for RAW files"
-#~ msgstr "Create UFRaw ID files for RAW files"
-
-#~ msgid "UFRaw Batch recursive"
-#~ msgstr "UFRaw Batch recursive"
-
-#~ msgid "Search for new RAW files or modified UFRaw ID files recursively"
-#~ msgstr "Search for new RAW files or modified UFRaw ID files recursively"
 
 #~ msgid "_Show Guidelines"
 #~ msgstr "_Show Guidelines"

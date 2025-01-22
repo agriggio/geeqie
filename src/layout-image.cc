@@ -35,7 +35,6 @@
 #include "archives.h"
 #include "collect.h"
 #include "compat.h"
-#include "debug.h"
 #include "dnd.h"
 #include "editors.h"
 #include "exif.h"
@@ -318,10 +317,7 @@ static void image_animation_data_free(AnimationData *fd)
 
 static gboolean animation_should_continue(AnimationData *fd)
 {
-	if (!fd->valid)
-		return FALSE;
-
-	return TRUE;
+	return fd->valid;
 }
 
 static gboolean show_next_frame(gpointer data)
@@ -404,52 +400,50 @@ static void layout_image_animate_update_image(LayoutWindow *lw)
 
 static void animation_async_ready_cb(GObject *, GAsyncResult *res, gpointer data)
 {
-	GError *error = nullptr;
 	auto animation = static_cast<AnimationData *>(data);
 
-	if (animation)
+	if (!animation) return;
+
+	if (g_cancellable_is_cancelled(animation->cancellable))
 		{
-		if (g_cancellable_is_cancelled(animation->cancellable))
-			{
-			gdk_pixbuf_animation_new_from_stream_finish(res, nullptr);
-			g_object_unref(animation->in_file);
-			g_object_unref(animation->gfstream);
-			image_animation_data_free(animation);
-			return;
-			}
-
-		animation->gpa = gdk_pixbuf_animation_new_from_stream_finish(res, &error);
-		if (animation->gpa)
-			{
-			if (!gdk_pixbuf_animation_is_static_image(animation->gpa))
-				{
-				animation->iter = gdk_pixbuf_animation_get_iter(animation->gpa, nullptr);
-				if (animation->iter)
-					{
-					animation->data_adr = animation->lw->image->image_fd;
-					animation->delay = gdk_pixbuf_animation_iter_get_delay_time(animation->iter);
-					animation->valid = TRUE;
-
-					layout_image_animate_update_image(animation->lw);
-
-					g_timeout_add(animation->delay, show_next_frame, animation);
-					}
-				}
-			}
-		else
-			{
-			log_printf("Error reading GIF file: %s\n", error->message);
-			}
-
+		gdk_pixbuf_animation_new_from_stream_finish(res, nullptr);
 		g_object_unref(animation->in_file);
 		g_object_unref(animation->gfstream);
+		image_animation_data_free(animation);
+		return;
 		}
+
+	g_autoptr(GError) error = nullptr;
+	animation->gpa = gdk_pixbuf_animation_new_from_stream_finish(res, &error);
+	if (animation->gpa)
+		{
+		if (!gdk_pixbuf_animation_is_static_image(animation->gpa))
+			{
+			animation->iter = gdk_pixbuf_animation_get_iter(animation->gpa, nullptr);
+			if (animation->iter)
+				{
+				animation->data_adr = animation->lw->image->image_fd;
+				animation->delay = gdk_pixbuf_animation_iter_get_delay_time(animation->iter);
+				animation->valid = TRUE;
+
+				layout_image_animate_update_image(animation->lw);
+
+				g_timeout_add(animation->delay, show_next_frame, animation);
+				}
+			}
+		}
+	else
+		{
+		log_printf("Error reading GIF file: %s\n", error->message);
+		}
+
+	g_object_unref(animation->in_file);
+	g_object_unref(animation->gfstream);
 }
 
 static gboolean layout_image_animate_new_file(LayoutWindow *lw)
 {
 	GFileInputStream *gfstream;
-	GError *error = nullptr;
 	AnimationData *animation;
 	GFile *in_file;
 
@@ -469,6 +463,7 @@ static gboolean layout_image_animate_new_file(LayoutWindow *lw)
 
 	in_file = g_file_new_for_path(lw->image->image_fd->path);
 	animation->in_file = in_file;
+	g_autoptr(GError) error = nullptr;
 	gfstream = g_file_read(in_file, nullptr, &error);
 	if (gfstream)
 		{
@@ -714,35 +709,26 @@ static void li_set_layout_path_cb(GtkWidget *, gpointer data)
 static void li_open_archive_cb(GtkWidget *, gpointer data)
 {
 	auto lw = static_cast<LayoutWindow *>(data);
-	LayoutWindow *lw_new;
-	gchar *dest_dir;
 
 	if (!layout_valid(&lw)) return;
 
-	dest_dir = open_archive(layout_image_get_fd(lw));
-	if (dest_dir)
-		{
-		lw_new = layout_new_from_default();
-		layout_set_path(lw_new, dest_dir);
-		g_free(dest_dir);
-		}
-	else
+	g_autofree gchar *dest_dir = open_archive(layout_image_get_fd(lw));
+	if (!dest_dir)
 		{
 		warning_dialog(_("Cannot open archive file"), _("See the Log Window"), GQ_ICON_DIALOG_WARNING, nullptr);
+		return;
 		}
+
+	LayoutWindow *lw_new = layout_new_from_default();
+	layout_set_path(lw_new, dest_dir);
 }
 
 static gboolean li_check_if_current_path(LayoutWindow *lw, const gchar *path)
 {
-	gchar *dirname;
-	gboolean ret;
-
 	if (!path || !layout_valid(&lw) || !lw->dir_fd) return FALSE;
 
-	dirname = g_path_get_dirname(path);
-	ret = (strcmp(lw->dir_fd->path, dirname) == 0);
-	g_free(dirname);
-	return ret;
+	g_autofree gchar *dirname = g_path_get_dirname(path);
+	return strcmp(lw->dir_fd->path, dirname) == 0;
 }
 
 static void layout_image_popup_menu_destroy_cb(GtkWidget *, gpointer data)
@@ -931,7 +917,6 @@ static void layout_image_dnd_receive(GtkWidget *widget, GdkDragContext *,
 {
 	auto lw = static_cast<LayoutWindow *>(data);
 	gint i;
-	gchar *url;
 
 
 	for (i = 0; i < MAX_SPLIT_IMAGES; i++)
@@ -947,9 +932,8 @@ static void layout_image_dnd_receive(GtkWidget *widget, GdkDragContext *,
 
 	if (info == TARGET_TEXT_PLAIN)
 		{
-		url = g_strdup(reinterpret_cast<const gchar *>(gtk_selection_data_get_data(selection_data)));
+		const auto *url = reinterpret_cast<const gchar *>(gtk_selection_data_get_data(selection_data));
 		download_web_file(url, FALSE, lw);
-		g_free(url);
 		}
 	else if (info == TARGET_URI_LIST || info == TARGET_APP_COLLECTION_MEMBER)
 		{
@@ -974,18 +958,16 @@ static void layout_image_dnd_receive(GtkWidget *widget, GdkDragContext *,
 
 			if (isfile(fd->path))
 				{
-				gchar *base;
 				gint row;
 				FileData *dir_fd;
 
-				base = remove_level_from_path(fd->path);
+				g_autofree gchar *base = remove_level_from_path(fd->path);
 				dir_fd = file_data_new_dir(base);
 				if (dir_fd != lw->dir_fd)
 					{
 					layout_set_fd(lw, dir_fd);
 					}
 				file_data_unref(dir_fd);
-				g_free(base);
 
 				row = layout_list_get_index(lw, fd);
 				if (source && info_list)
@@ -1786,7 +1768,6 @@ static void layout_image_button_cb(ImageWindow *imd, GdkEventButton *event, gpoi
 	auto lw = static_cast<LayoutWindow *>(data);
 	GtkWidget *menu;
 	LayoutWindow *lw_new;
-	gchar *dest_dir;
 
 	switch (event->button)
 		{
@@ -1796,14 +1777,13 @@ static void layout_image_button_cb(ImageWindow *imd, GdkEventButton *event, gpoi
 				layout_image_full_screen_toggle(lw);
 				}
 
-			else if (options->image_l_click_archive && imd-> image_fd && imd->image_fd->format_class == FORMAT_CLASS_ARCHIVE)
+			else if (options->image_l_click_archive && imd->image_fd && imd->image_fd->format_class == FORMAT_CLASS_ARCHIVE)
 				{
-				dest_dir = open_archive(imd->image_fd);
+				g_autofree gchar *dest_dir = open_archive(imd->image_fd); // @todo Deduplicate
 				if (dest_dir)
 					{
 					lw_new = layout_new_from_default();
 					layout_set_path(lw_new, dest_dir);
-					g_free(dest_dir);
 					}
 				else
 					{
@@ -2017,7 +1997,6 @@ static void layout_status_update_pixel_cb(PixbufRenderer *pr, gpointer data)
 	gint y_pixel;
 	gint width;
 	gint height;
-	gchar *text;
 	PangoAttrList *attrs;
 
 	if (!data || !layout_valid(&lw) || !lw->image
@@ -2028,6 +2007,7 @@ static void layout_status_update_pixel_cb(PixbufRenderer *pr, gpointer data)
 
 	pixbuf_renderer_get_mouse_position(pr, &x_pixel, &y_pixel);
 
+	g_autofree gchar *text = nullptr;
 	if(x_pixel >= 0 && y_pixel >= 0)
 		{
 		gint r_mouse;
@@ -2065,7 +2045,6 @@ static void layout_status_update_pixel_cb(PixbufRenderer *pr, gpointer data)
 	gtk_label_set_text(GTK_LABEL(lw->info_pixel), text);
 	gtk_label_set_attributes(GTK_LABEL(lw->info_pixel), attrs);
 	pango_attr_list_unref(attrs);
-	g_free(text);
 }
 
 

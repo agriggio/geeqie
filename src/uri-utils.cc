@@ -20,14 +20,13 @@
 
 #include "uri-utils.h"
 
-#include "debug.h"
 #include "filedata.h"
 #include "intl.h"
 #include "main-defines.h"
 #include "ui-fileops.h"
 #include "ui-utildlg.h"
 
-void warning_dialog_dnd_uri_error(GList *uri_error_list)
+static void warning_dialog_dnd_uri_error(GList *uri_error_list)
 {
 	g_autoptr(GString) msg = g_string_new(nullptr);
 	guint count = g_list_length(uri_error_list);
@@ -42,7 +41,7 @@ void warning_dialog_dnd_uri_error(GList *uri_error_list)
 	warning_dialog(_("Drag and Drop failed"), msg->str, GQ_ICON_DIALOG_WARNING, nullptr);
 }
 
-gchar **uris_from_pathlist(GList *list)
+static gchar **uris_from_pathlist(GList *list)
 {
 	GList *work;
 	guint i = 0;
@@ -53,9 +52,8 @@ gchar **uris_from_pathlist(GList *list)
 	while (work)
 		{
 		auto path = static_cast<const gchar *>(work->data);
-		gchar *local_path = path_from_utf8(path);
+		g_autofree gchar *local_path = path_from_utf8(path);
 		uris[i] = g_filename_to_uri(local_path, nullptr, nullptr);
-		g_free(local_path);
 
 		i++;
 		work = work->next;
@@ -65,57 +63,53 @@ gchar **uris_from_pathlist(GList *list)
 	return uris;
 }
 
-gchar **uris_from_filelist(GList *list)
+gboolean uri_selection_data_set_uris_from_filelist(GtkSelectionData *selection_data, GList *list)
 {
 	GList *path_list = filelist_to_path_list(list);
-	gchar **ret = uris_from_pathlist(path_list);
+	gboolean ret = uri_selection_data_set_uris_from_pathlist(selection_data, path_list);
+
 	g_list_free_full(path_list, g_free);
 	return ret;
 }
 
-gboolean uri_selection_data_set_uris_from_filelist(GtkSelectionData *selection_data, GList *list)
+gboolean uri_selection_data_set_uris_from_pathlist(GtkSelectionData *selection_data, GList *list)
 {
-	gchar **uris = uris_from_filelist(list);
+	g_auto(GStrv) uris = uris_from_pathlist(list);
 	gboolean ret = gtk_selection_data_set_uris(selection_data, uris);
 	if (!ret)
 		{
-		char *str = g_strjoinv("\r\n", uris);
+		g_autofree char *str = g_strjoinv("\r\n", uris);
 		ret = gtk_selection_data_set_text(selection_data, str, -1);
-		g_free(str);
 		}
 
-	g_strfreev(uris);
 	return ret;
 }
 
-GList *uri_pathlist_from_uris(gchar **uris, GList **uri_error_list)
+static GList *uri_pathlist_from_uris(gchar **uris, GList **uri_error_list)
 {
 	GList *list = nullptr;
 	guint i = 0;
-	GError *error = nullptr;
 
 	while (uris[i])
 		{
-		gchar *local_path = g_filename_from_uri(uris[i], nullptr, &error);
+		g_autoptr(GError) error = nullptr;
+		g_autofree gchar *local_path = g_filename_from_uri(uris[i], nullptr, &error);
 		if (error)
 			{
 			DEBUG_1("g_filename_from_uri failed on uri \"%s\"", uris[i]);
 			DEBUG_1("   error %d: %s", error->code, error->message);
 			if (error->code == G_CONVERT_ERROR_BAD_URI)
 				{
-				GError *retry_error = nullptr;
-				gchar *escaped = g_uri_escape_string(uris[i], ":/", TRUE);
+				g_autofree gchar *escaped = g_uri_escape_string(uris[i], ":/", TRUE);
+				g_autoptr(GError) retry_error = nullptr;
 				local_path = g_filename_from_uri(escaped, nullptr, &retry_error);
 				if(retry_error)
 					{
 					DEBUG_1("manually escaped uri \"%s\" also failed g_filename_from_uri", escaped);
 					DEBUG_1("   error %d: %s", retry_error->code, retry_error->message);
-					g_error_free(retry_error);
 					}
-				g_free(escaped);
 				}
-			g_error_free(error);
-			error = nullptr;
+
 			if (!local_path)
 				{
 				*uri_error_list = g_list_prepend(*uri_error_list, g_strdup(uris[i]));
@@ -123,8 +117,8 @@ GList *uri_pathlist_from_uris(gchar **uris, GList **uri_error_list)
 				continue;
 				}
 			}
+
 		gchar *path = path_to_utf8(local_path);
-		g_free(local_path);
 		list = g_list_prepend(list, path);
 		i++;
 		}
@@ -133,28 +127,27 @@ GList *uri_pathlist_from_uris(gchar **uris, GList **uri_error_list)
 	return g_list_reverse(list);
 }
 
-GList *uri_filelist_from_uris(gchar **uris, GList **uri_error_list)
+GList *uri_filelist_from_gtk_selection_data(const GtkSelectionData *selection_data)
 {
-	GList *path_list = uri_pathlist_from_uris(uris, uri_error_list);
-	GList *filelist = filelist_from_path_list(path_list);
+	GList *path_list = uri_pathlist_from_gtk_selection_data(selection_data);
+	GList *ret = filelist_from_path_list(path_list);
+
 	g_list_free_full(path_list, g_free);
-	return filelist;
+	return ret;
 }
 
-GList *uri_filelist_from_gtk_selection_data(GtkSelectionData *selection_data)
+GList *uri_pathlist_from_gtk_selection_data(const GtkSelectionData *selection_data)
 {
+	g_auto(GStrv) uris = gtk_selection_data_get_uris(selection_data);
 	GList *errors = nullptr;
-	gchar **uris = gtk_selection_data_get_uris(selection_data);
-	GList *ret = uri_filelist_from_uris(uris, &errors);
+	GList *ret = uri_pathlist_from_uris(uris, &errors);
 	if(errors)
 		{
 		warning_dialog_dnd_uri_error(errors);
 		g_list_free_full(errors, g_free);
 		}
-	g_strfreev(uris);
+
 	return ret;
 }
-
-
 
 /* vim: set shiftwidth=8 softtabstop=0 cindent cinoptions={1s: */

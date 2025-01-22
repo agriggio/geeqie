@@ -21,14 +21,13 @@
 
 #include "filefilter.h"
 
-#include <cstring>
+#include <string>
 
 #include <gdk-pixbuf/gdk-pixbuf.h>
 
 #include <config.h>
 
 #include "cache.h"
-#include "debug.h"
 #include "main-defines.h"
 #include "options.h"
 #include "rcfile.h"
@@ -116,10 +115,9 @@ void filter_add(const gchar *key, const gchar *description, const gchar *extensi
 
 void filter_add_unique(const gchar *description, const gchar *extensions, FileFormatClass file_class, gboolean writable, gboolean allow_sidecar, gboolean enabled)
 {
-	gchar *key;
 	guint n;
 
-	key = g_strdup("user0");
+	g_autofree gchar *key = g_strdup("user0");
 	n = 1;
 	while (filter_key_exists(key))
 		{
@@ -130,7 +128,6 @@ void filter_add_unique(const gchar *description, const gchar *extensions, FileFo
 		}
 
 	filter_add(key, description, extensions, file_class, writable, allow_sidecar, enabled);
-	g_free(key);
 }
 
 static void filter_add_if_missing(const gchar *key, const gchar *description, const gchar *extensions, FileFormatClass file_class, gboolean writable, gboolean allow_sidecar, gboolean enabled)
@@ -163,9 +160,16 @@ void filter_reset()
 void filter_add_defaults()
 {
 	/* formats supported by custom loaders */
+	/*                     key    description      extensions   file_class   writable   allow_sidecar   enabled */
 	filter_add_if_missing("dds", "DirectDraw Surface", ".dds", FORMAT_CLASS_IMAGE, FALSE, FALSE, TRUE);
 #if HAVE_PDF
 	filter_add_if_missing("pdf", "Portable Document Format", ".pdf", FORMAT_CLASS_DOCUMENT, FALSE, FALSE, TRUE);
+#endif
+#if HAVE_EXR
+	filter_add_if_missing("exr", "Exr Image", ".exr", FORMAT_CLASS_IMAGE, FALSE, TRUE, TRUE);
+#endif
+#if HAVE_FITS
+	filter_add_if_missing("fits", "Fits Image", ".fits;.fit;.fts", FORMAT_CLASS_IMAGE, FALSE, TRUE, TRUE);
 #endif
 #if HAVE_HEIF
 	filter_add_if_missing("heif/avif", "HEIF/AVIF Image", ".heif;.heic;.avif", FORMAT_CLASS_IMAGE, FALSE, TRUE, TRUE);
@@ -184,6 +188,9 @@ void filter_add_defaults()
 #endif
 #if HAVE_ARCHIVE
 	filter_add_if_missing("zip", "Archive files", ".zip;.rar;.tar;.tar.gz;.tar.bz2;.tar.xz;.tgz;.tbz;.txz;.cbr;.cbz;.gz;.bz2;.xz;.lzh;.lza;.7z", FORMAT_CLASS_ARCHIVE, FALSE, FALSE, TRUE);
+#endif
+#if HAVE_NPY
+	filter_add_if_missing("npy", "Numpy image file", ".npy", FORMAT_CLASS_IMAGE, FALSE, FALSE, TRUE);
 #endif
 	filter_add_if_missing("scr", "ZX Spectrum screen Format", ".scr", FORMAT_CLASS_IMAGE, FALSE, FALSE, TRUE);
 	filter_add_if_missing("psd", "Adobe Photoshop Document", ".psd", FORMAT_CLASS_IMAGE, FALSE, FALSE, TRUE);
@@ -288,7 +295,6 @@ GList *filter_to_list(const gchar *extensions)
 	while (*p != '\0')
 		{
 		const gchar *b;
-		gchar *ext;
 		gint file_class = -1;
 		guint l = 0;
 
@@ -299,7 +305,7 @@ GList *filter_to_list(const gchar *extensions)
 			l++;
 			}
 
-		ext = g_strndup(b, l);
+		g_autofree gchar *ext = g_strndup(b, l);
 
 		if (g_ascii_strcasecmp(ext, "%image") == 0) file_class = FORMAT_CLASS_IMAGE;
 		else if (g_ascii_strcasecmp(ext, "%raw") == 0) file_class = FORMAT_CLASS_RAWIMAGE;
@@ -308,12 +314,11 @@ GList *filter_to_list(const gchar *extensions)
 
 		if (file_class == -1)
 			{
-			list = g_list_append(list, ext);
+			list = g_list_append(list, g_steal_pointer(&ext));
 			}
 		else
 			{
 			list = g_list_concat(list, string_list_copy(file_class_extension_list[file_class]));
-			g_free(ext);
 			}
 
 		if (*p == ';') p++;
@@ -514,7 +519,7 @@ void filter_load_file_type(const gchar **attribute_names, const gchar **attribut
 		if (READ_BOOL(fe, writable)) continue;
 		if (READ_BOOL(fe, allow_sidecar)) continue;
 
-		log_printf("unknown attribute %s = %s\n", option, value);
+		config_file_error((std::string("Unknown attribute: ") + option + " = " + value).c_str());
 		}
 	if (fe.file_class >= FILE_FORMAT_CLASSES) fe.file_class = FORMAT_CLASS_UNKNOWN;
 

@@ -54,6 +54,7 @@ omit_text_array="
 &lt
 @brief
 @param
+BOLD_ON
 COPYRIGHT
 ColorSpace
 DEBUG
@@ -73,9 +74,16 @@ PixbufRenderer
 PluginsMenu
 READ_
 Separator
+URL
 WRITE_
 Wrap
+XOFF
+config_file_error
+runtime_error
 \"Desktop\"
+\"File\"
+\"Geeqie\"
+\"Geeqie AppImage\"
 \"Layout\"
 \"OK\"
 \"Xmp.

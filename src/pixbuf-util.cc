@@ -39,7 +39,6 @@
 
 #include <config.h>
 
-#include "debug.h"
 #include "exif.h"
 #include "filedata.h"
 #include "main-defines.h"
@@ -130,7 +129,7 @@ void pixbuf_draw_rect_fill(guchar *p_pix, gint prs, gboolean has_alpha,
 
 	for (gint y = y1; y < y2; y++)
 		{
-		guchar *pp = p_pix + y * prs + x1 * p_step;
+		guchar *pp = p_pix + (y * prs) + (x1 * p_step);
 
 		for (gint x = x1; x < x2; x++)
 			{
@@ -154,18 +153,17 @@ void pixbuf_draw_rect_fill(guchar *p_pix, gint prs, gboolean has_alpha,
 
 gboolean pixbuf_to_file_as_png(GdkPixbuf *pixbuf, const gchar *filename)
 {
-	GError *error = nullptr;
 	gboolean ret;
 
 	if (!pixbuf || !filename) return FALSE;
 
+	g_autoptr(GError) error = nullptr;
 	ret = gdk_pixbuf_save(pixbuf, filename, "png", &error,
 			      "tEXt::Software", GQ_APPNAME " " VERSION, NULL);
 
 	if (error)
 		{
 		log_printf("Error saving png file: %s\n", error->message);
-		g_error_free(error);
 		}
 
 	return ret;
@@ -179,16 +177,14 @@ gboolean pixbuf_to_file_as_png(GdkPixbuf *pixbuf, const gchar *filename)
 
 GdkPixbuf *pixbuf_inline(const gchar *key)
 {
-	gchar *theme_name;
-	GError *error = nullptr;
 	GInputStream *in_stream;
 
 	if (!key) return nullptr;
 
 	GtkSettings *settings = gtk_settings_get_default();
+	g_autofree gchar *theme_name = nullptr;
 	g_object_get(settings, "gtk-theme-name", &theme_name, nullptr);
 	gboolean dark = g_str_has_suffix(theme_name, "dark");
-	g_free(theme_name);
 
 	const auto it = std::find_if(std::cbegin(inline_pixbuf_data), std::cend(inline_pixbuf_data),
 	                             [key](const PixbufInline &pi){ return strcmp(pi.key, key) == 0; });
@@ -200,14 +196,12 @@ GdkPixbuf *pixbuf_inline(const gchar *key)
 
 	const auto get_input_stream = [](const gchar *data, gboolean dark, GError **error) -> GInputStream *
 	{
-		gchar *file_name = g_strconcat(data, dark ? "-dark" : "", ".png", nullptr);
-		gchar *path = g_build_filename(GQ_RESOURCE_PATH_ICONS, file_name, nullptr);
-		GInputStream *in_stream = g_resources_open_stream(path, G_RESOURCE_LOOKUP_FLAGS_NONE, error);
-		g_free(path);
-		g_free(file_name);
-		return in_stream;
+		g_autofree gchar *file_name = g_strconcat(data, dark ? "-dark" : "", ".png", nullptr);
+		g_autofree gchar *path = g_build_filename(GQ_RESOURCE_PATH_ICONS, file_name, nullptr);
+		return g_resources_open_stream(path, G_RESOURCE_LOOKUP_FLAGS_NONE, error);
 	};
 
+	g_autoptr(GError) error = nullptr;
 	in_stream = get_input_stream(it->data, dark, &error);
 	if (error && dark)
 		{
@@ -219,7 +213,6 @@ GdkPixbuf *pixbuf_inline(const gchar *key)
 	if (error)
 		{
 		log_printf("warning: inline pixbuf error: %s", error->message);
-		g_error_free(error);
 		g_object_unref(in_stream);
 		return nullptr;
 		}
@@ -230,7 +223,6 @@ GdkPixbuf *pixbuf_inline(const gchar *key)
 	if (error)
 		{
 		log_printf("warning: inline pixbuf error: %s", error->message);
-		g_error_free(error);
 		return nullptr;
 		}
 
@@ -287,7 +279,7 @@ gboolean register_theme_icon_as_stock(const gchar *key, const gchar *icon)
 		if (strchr(icon, '.'))
 			{
 			/* try again without extension */
-			gchar *icon2 = remove_extension_from_path(icon);
+			g_autofree gchar *icon2 = remove_extension_from_path(icon);
 			pixbuf = gtk_icon_theme_load_icon(icon_theme,
 		                           icon2, /* icon name */
 		                           64, /* size */
@@ -307,7 +299,6 @@ gboolean register_theme_icon_as_stock(const gchar *key, const gchar *icon)
 					g_error_free(error);
 					}
 				}
-			g_free(icon2);
 			}
 		}
 
@@ -491,13 +482,13 @@ GdkPixbuf *pixbuf_copy_rotate_90(GdkPixbuf *src, gboolean counter_clockwise)
 
 	for (i = 0; i < sh; i+= ROTATE_BUFFER_WIDTH)
 		{
-		w = MIN(ROTATE_BUFFER_WIDTH, (sh - i));
+		w = std::min(ROTATE_BUFFER_WIDTH, sh - i);
 		for (j = 0; j < sw; j += ROTATE_BUFFER_HEIGHT)
 			{
 			gint x;
 			gint y;
 
-			h = MIN(ROTATE_BUFFER_HEIGHT, (sw - j));
+			h = std::min(ROTATE_BUFFER_HEIGHT, sw - j);
 			pixbuf_copy_block_rotate(s_pix, srs, j, i,
 						 b_pix, brs, h, w,
 						 a, counter_clockwise);
@@ -893,7 +884,7 @@ static void pixbuf_copy_font(GdkPixbuf *src, gint sx, gint sy,
 				asub = a * sp[2] / 255;
 				dp[2] = (b * asub + dp[2] * (256-asub)) >> 8;
 
-				if (d_alpha) dp[3] = MAX(dp[3], a * ((sp[0] + sp[1] + sp[2]) / 3) / 255);
+				if (d_alpha) dp[3] = std::max<guchar>(dp[3], a * ((sp[0] + sp[1] + sp[2]) / 3) / 255);
 				}
 
 			sp += s_step;
@@ -1268,7 +1259,7 @@ void pixbuf_draw_line(GdkPixbuf *pb, GdkRectangle clip,
 		if (x < pb_rect.x || x >= pb_rect.x + pb_rect.width ||
 		    y < pb_rect.y || y >= pb_rect.y + pb_rect.height) return;
 
-		guchar *pp = p_pix + y * prs + x * p_step;
+		guchar *pp = p_pix + (y * prs) + (x * p_step);
 		pp[0] = (r * a + pp[0] * (256-a)) >> 8;
 		pp[1] = (g * a + pp[1] * (256-a)) >> 8;
 		pp[2] = (b * a + pp[2] * (256-a)) >> 8;
@@ -1291,7 +1282,7 @@ void pixbuf_draw_line(GdkPixbuf *pb, GdkRectangle clip,
 		for (x = rx1; x < rx2; x += 1.0)
 			{
 			px = static_cast<gint>(x + 0.5);
-			py = static_cast<gint>(ry1 + (x - rx1) * slope + 0.5);
+			py = static_cast<gint>(ry1 + ((x - rx1) * slope) + 0.5);
 
 			fill_pixel(px, py);
 			}
@@ -1308,7 +1299,7 @@ void pixbuf_draw_line(GdkPixbuf *pb, GdkRectangle clip,
 		if (slope != 0.0) slope = (rx2 - rx1) / slope;
 		for (y = ry1; y < ry2; y += 1.0)
 			{
-			px = static_cast<gint>(rx1 + (y - ry1) * slope + 0.5);
+			px = static_cast<gint>(rx1 + ((y - ry1) * slope) + 0.5);
 			py = static_cast<gint>(y + 0.5);
 
 			fill_pixel(px, py);
@@ -1349,7 +1340,7 @@ static void pixbuf_draw_fade_linear(guchar *p_pix, gint prs, gboolean has_alpha,
 	{
 		gint coord = vertical ? x : y;
 		gint distance = std::min(border, abs(coord - s));
-		return a - a * distance / border;
+		return a - (a * distance / border);
 	};
 
 	pixbuf_draw_rect_fill(p_pix, prs, has_alpha, fade_rect, r, g, b, get_a);
@@ -1377,7 +1368,7 @@ static void pixbuf_draw_fade_radius(guchar *p_pix, gint prs, gboolean has_alpha,
 	const auto get_a = [sx, sy, border, a](gint x, gint y)
 	{
 		gint radius = std::min(border, static_cast<gint>(hypot(x - sx, y - sy)));
-		return a - a * radius / border;
+		return a - (a * radius / border);
 	};
 
 	pixbuf_draw_rect_fill(p_pix, prs, has_alpha, fade_rect, r, g, b, get_a);
@@ -1417,7 +1408,7 @@ void pixbuf_draw_shadow(GdkPixbuf *pb, GdkRectangle clip,
 	// Composites the specified color into the rectangle specified by x, y, w, h,
 	// as contracted by `border` pixels, with a composition fraction that's defined
 	// by the supplied `a` parameter.
-	const GdkRectangle contracted_rect{x + border, y + border, w - border * 2, h - border * 2};
+	const GdkRectangle contracted_rect{x + border, y + border, w - (border * 2), h - (border * 2)};
 	GdkRectangle f;
 	if (gdk_rectangle_intersect(&contracted_rect, &pb_rect, &f))
 		{
@@ -1438,10 +1429,10 @@ void pixbuf_draw_shadow(GdkPixbuf *pb, GdkRectangle clip,
 		                        r, g, b, a);
 	};
 
-	draw_fade_linear_if_intersect({x, y + border, border, h - border * 2}, x + border, TRUE);
-	draw_fade_linear_if_intersect({x + w - border, y + border, border, h - border * 2}, x + w - border, TRUE);
-	draw_fade_linear_if_intersect({x + border, y, w - border * 2, border}, y + border, FALSE);
-	draw_fade_linear_if_intersect({x + border, y + h - border, w - border * 2, border}, y + h - border, FALSE);
+	draw_fade_linear_if_intersect({x, y + border, border, h - (border * 2)}, x + border, TRUE);
+	draw_fade_linear_if_intersect({x + w - border, y + border, border, h - (border * 2)}, x + w - border, TRUE);
+	draw_fade_linear_if_intersect({x + border, y, w - (border * 2), border}, y + border, FALSE);
+	draw_fade_linear_if_intersect({x + border, y + h - border, w - (border * 2), border}, y + h - border, FALSE);
 
 	// Draws radial gradients at each of the 4 corners.
 	const auto draw_fade_radius_if_intersect = [&pb_rect, p_pix, prs, has_alpha, border, r, g, b, a](GdkRectangle rect, gint sx, gint sy)

@@ -25,9 +25,10 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
+#include <algorithm>
 #include <cstdio>
 #include <cstdlib>
-#include <cstring>
+#include <string>
 
 #include <gio/gio.h>
 #include <glib-object.h>
@@ -44,7 +45,6 @@
 #include "collect.h"
 #include "color-man.h"
 #include "compat.h"
-#include "debug.h"
 #include "desktop-file.h"
 #include "dupe.h"
 #include "editors.h"
@@ -74,6 +74,7 @@
 #include "search-and-run.h"
 #include "search.h"
 #include "slideshow.h"
+#include "toolbar.h"
 #include "ui-fileops.h"
 #include "ui-menu.h"
 #include "ui-misc.h"
@@ -104,14 +105,9 @@ static guint tree_key_overrides[] = {
 
 static gboolean layout_key_match(guint keyval)
 {
-	guint i;
+	const auto it = std::find(std::cbegin(tree_key_overrides), std::cend(tree_key_overrides), keyval);
 
-	for (i = 0; i < sizeof(tree_key_overrides) / sizeof(guint); i++)
-		{
-		if (keyval == tree_key_overrides[i]) return TRUE;
-		}
-
-	return FALSE;
+	return it != std::cend(tree_key_overrides);
 }
 
 void keyboard_scroll_calc(gint &x, gint &y, const GdkEventKey *event)
@@ -317,7 +313,6 @@ static void layout_menu_new_cb(GtkAction *, gpointer data)
 static void layout_menu_open_cb(GtkAction *widget, gpointer data)
 {
 	auto lw = static_cast<LayoutWindow *>(data);
-	gchar *path;
 	gint n;
 	GList *collection_list = nullptr;
 
@@ -326,14 +321,12 @@ static void layout_menu_open_cb(GtkAction *widget, gpointer data)
 	n = GPOINTER_TO_INT(g_object_get_data(G_OBJECT(widget), "recent_index"));
 	collect_manager_list(nullptr, nullptr, &collection_list);
 
-	path = static_cast<gchar *>(g_list_nth_data(collection_list, n));
-
-	if (path)
+	const auto *collection_path = static_cast<gchar *>(g_list_nth_data(collection_list, n));
+	if (collection_path)
 		{
 		/* make a copy of it */
-		path = g_strdup(path);
+		g_autofree gchar *path = g_strdup(collection_path);
 		collection_window_new(path);
-		g_free(path);
 		}
 
 	g_list_free_full(collection_list, g_free);
@@ -629,8 +622,8 @@ static void layout_menu_write_rotate(GtkToggleAction *, gpointer data, gboolean 
 
 	vf_selection_foreach(lw->vf, [keep_date_arg](FileData *fd_n)
 	{
-		gchar *command = g_strdup_printf("%s/geeqie-rotate -r %d %s \"%s\"",
-		                                 gq_bindir, fd_n->user_orientation, keep_date_arg, fd_n->path);
+		g_autofree gchar *command = g_strdup_printf("%s/geeqie-rotate -r %d %s \"%s\"",
+		                                            gq_bindir, fd_n->user_orientation, keep_date_arg, fd_n->path);
 		int cmdstatus = runcmd(command);
 		gint run_result = WEXITSTATUS(cmdstatus);
 		if (!run_result)
@@ -639,7 +632,7 @@ static void layout_menu_write_rotate(GtkToggleAction *, gpointer data, gboolean 
 			}
 		else
 			{
-			GString *message = g_string_new(_("Operation failed:\n"));
+			g_autoptr(GString) message = g_string_new(_("Operation failed:\n"));
 
 			if (run_result == 1)
 				message = g_string_append(message, _("No file extension\n"));
@@ -661,11 +654,7 @@ static void layout_menu_write_rotate(GtkToggleAction *, gpointer data, gboolean 
 			generic_dialog_add_button(gd, GQ_ICON_OK, "OK", nullptr, TRUE);
 
 			gtk_widget_show(gd->dialog);
-
-			g_string_free(message, TRUE);
 			}
-
-		g_free(command);
 	});
 }
 
@@ -973,27 +962,33 @@ struct OpenWithData
 	GtkWidget *app_chooser_dialog;
 };
 
-static void open_with_response_cb(GtkDialog *, gint response_id, gpointer data)
+static void open_with_data_free(OpenWithData *open_with_data)
 {
-	GError *error = nullptr;
-	auto open_with_data = static_cast<OpenWithData *>(data);
-
-	if (response_id == GTK_RESPONSE_OK)
-		{
-		g_app_info_launch(open_with_data->application, open_with_data->g_file_list, nullptr, &error);
-
-		if (error)
-			{
-			log_printf("Error launching app: %s\n", error->message);
-			g_error_free(error);
-			}
-		}
+	if (!open_with_data) return;
 
 	g_object_unref(open_with_data->application);
 	g_object_unref(g_list_first(open_with_data->g_file_list)->data);
 	g_list_free(open_with_data->g_file_list);
 	gq_gtk_widget_destroy(GTK_WIDGET(open_with_data->app_chooser_dialog));
 	g_free(open_with_data);
+}
+
+static void open_with_response_cb(GtkDialog *, gint response_id, gpointer data)
+{
+	auto open_with_data = static_cast<OpenWithData *>(data);
+
+	if (response_id == GTK_RESPONSE_OK)
+		{
+		g_autoptr(GError) error = nullptr;
+		g_app_info_launch(open_with_data->application, open_with_data->g_file_list, nullptr, &error);
+
+		if (error)
+			{
+			log_printf("Error launching app: %s\n", error->message);
+			}
+		}
+
+	open_with_data_free(open_with_data);
 }
 
 static void open_with_application_selected_cb(GtkAppChooserWidget *, GAppInfo *application, gpointer data)
@@ -1007,22 +1002,17 @@ static void open_with_application_selected_cb(GtkAppChooserWidget *, GAppInfo *a
 
 static void open_with_application_activated_cb(GtkAppChooserWidget *, GAppInfo *application, gpointer data)
 {
-	GError *error = nullptr;
 	auto open_with_data = static_cast<OpenWithData *>(data);
 
+	g_autoptr(GError) error = nullptr;
 	g_app_info_launch(application, open_with_data->g_file_list, nullptr, &error);
 
 	if (error)
 		{
 		log_printf("Error launching app.: %s\n", error->message);
-		g_error_free(error);
 		}
 
-	g_object_unref(open_with_data->application);
-	g_object_unref(g_list_first(open_with_data->g_file_list)->data);
-	g_list_free(open_with_data->g_file_list);
-	gq_gtk_widget_destroy(GTK_WIDGET(open_with_data->app_chooser_dialog));
-	g_free(open_with_data);
+	open_with_data_free(open_with_data);
 }
 
 static void layout_menu_open_with_cb(GtkAction *, gpointer data)
@@ -1058,27 +1048,22 @@ static void layout_menu_open_with_cb(GtkAction *, gpointer data)
 static void layout_menu_open_archive_cb(GtkAction *, gpointer data)
 {
 	auto lw = static_cast<LayoutWindow *>(data);
-	LayoutWindow *lw_new;
-	gchar *dest_dir;
 	FileData *fd;
 
 	layout_exit_fullscreen(lw);
 	fd = layout_image_get_fd(lw);
 
-	if (fd->format_class == FORMAT_CLASS_ARCHIVE)
+	if (fd->format_class != FORMAT_CLASS_ARCHIVE) return;
+
+	g_autofree gchar *dest_dir = open_archive(layout_image_get_fd(lw));
+	if (!dest_dir)
 		{
-		dest_dir = open_archive(layout_image_get_fd(lw));
-		if (dest_dir)
-			{
-			lw_new = layout_new_from_default();
-			layout_set_path(lw_new, dest_dir);
-			g_free(dest_dir);
-			}
-		else
-			{
-			warning_dialog(_("Cannot open archive file"), _("See the Log Window"), GQ_ICON_DIALOG_WARNING, nullptr);
-			}
+		warning_dialog(_("Cannot open archive file"), _("See the Log Window"), GQ_ICON_DIALOG_WARNING, nullptr);
+		return;
 		}
+
+	LayoutWindow *lw_new = layout_new_from_default();
+	layout_set_path(lw_new, dest_dir);
 }
 
 static void layout_menu_fullscreen_cb(GtkAction *, gpointer data)
@@ -1305,16 +1290,12 @@ static void layout_menu_slideshow_pause_cb(GtkAction *, gpointer data)
 
 static void layout_menu_slideshow_slower_cb(GtkAction *, gpointer)
 {
-	options->slideshow.delay = options->slideshow.delay + 5;
-	if (options->slideshow.delay > SLIDESHOW_MAX_SECONDS)
-		options->slideshow.delay = SLIDESHOW_MAX_SECONDS;
+	options->slideshow.delay = std::min<gdouble>(options->slideshow.delay + 5, SLIDESHOW_MAX_SECONDS);
 }
 
 static void layout_menu_slideshow_faster_cb(GtkAction *, gpointer)
 {
-	options->slideshow.delay = options->slideshow.delay - 5;
-	if (options->slideshow.delay < SLIDESHOW_MIN_SECONDS * 10)
-		options->slideshow.delay = SLIDESHOW_MIN_SECONDS * 10;
+	options->slideshow.delay = std::max<gdouble>(options->slideshow.delay - 5, SLIDESHOW_MIN_SECONDS * 10);
 }
 
 
@@ -1393,7 +1374,11 @@ static void layout_menu_changelog_cb(GtkAction *, gpointer data)
 	help_window_show("changelog");
 }
 
-static constexpr const char *keyboard_map_hardcoded[][2] = {
+static constexpr struct
+{
+	const gchar *menu_name;
+	const gchar *key_name;
+} keyboard_map_hardcoded[] = {
 	{"Scroll","Left"},
 	{"FastScroll", "&lt;Shift&gt;Left"},
 	{"Left Border", "&lt;Primary&gt;Left"},
@@ -1429,14 +1414,12 @@ static void layout_menu_foreach_func(
 					GdkModifierType accel_mods,
 					gboolean)
 {
-	gchar *path;
-	gchar *name;
 	gchar *key_name;
 	gchar *menu_name;
 	auto array = static_cast<GPtrArray *>(data);
 
-	path = g_strescape(accel_path, nullptr);
-	name = gtk_accelerator_name(accel_key, accel_mods);
+	g_autofree gchar *path = g_strescape(accel_path, nullptr);
+	g_autofree gchar *name = gtk_accelerator_name(accel_key, accel_mods);
 
 	menu_name = g_strdup(strrchr(path, '/') + 1);
 
@@ -1449,104 +1432,84 @@ static void layout_menu_foreach_func(
 		key_name = g_strjoinv("&gt;", subset_gt_arr);
 		}
 	else
-		key_name = g_strdup(name);
+                key_name = (gchar *)g_steal_pointer(&name);
 
 	g_ptr_array_add(array, menu_name);
 	g_ptr_array_add(array, key_name);
+}
 
-	g_free(name);
-	g_free(path);
+static gchar *convert_template_line(const gchar *template_line, const GPtrArray *keyboard_map_array)
+{
+	if (!g_strrstr(template_line, ">key:"))
+		{
+		return g_strdup_printf("%s\n", template_line);
+		}
+
+	g_auto(GStrv) pre_key = g_strsplit(template_line, ">key:", 2);
+	g_auto(GStrv) post_key = g_strsplit(pre_key[1], "<", 2);
+
+	const gchar *key_name = post_key[0];
+	const gchar *menu_name = " ";
+	for (guint index = 0; index < keyboard_map_array->len-1; index += 2)
+		{
+		if (!g_ascii_strcasecmp(static_cast<const gchar *>(g_ptr_array_index(keyboard_map_array, index+1)), key_name))
+			{
+			menu_name = static_cast<const gchar *>(g_ptr_array_index(keyboard_map_array, index+0));
+			break;
+			}
+		}
+
+	for (const auto &m : keyboard_map_hardcoded)
+		{
+		if (!g_strcmp0(m.key_name, key_name))
+			{
+			menu_name = m.menu_name;
+			break;
+			}
+		}
+
+	return g_strconcat(pre_key[0], ">", menu_name, "<", post_key[1], "\n", NULL);
+}
+
+static void convert_keymap_template_to_file(const gint fd, const GPtrArray *keyboard_map_array)
+{
+	g_autoptr(GIOChannel) channel = g_io_channel_unix_new(fd);
+
+	int keymap_index = 0;
+	while (keymap_template[keymap_index])
+		{
+		g_autofree gchar *converted_line = convert_template_line(keymap_template[keymap_index], keyboard_map_array);
+
+		g_autoptr(GError) error = nullptr;
+		g_io_channel_write_chars(channel, converted_line, -1, nullptr, &error);
+		if (error) log_printf("Warning: Keyboard Map:%s\n", error->message);
+
+		keymap_index++;
+		}
+
+	g_autoptr(GError) error = nullptr;
+	g_io_channel_flush(channel, &error);
+	if (error) log_printf("Warning: Keyboard Map:%s\n", error->message);
 }
 
 static void layout_menu_kbd_map_cb(GtkAction *, gpointer)
 {
-	gint fd = -1;
-	GPtrArray *array;
-	char * tmp_file;
-	GError *error = nullptr;
-	GIOChannel *channel;
-	char **pre_key;
-	char **post_key;
-	const char *key_name;
-	char *converted_line;
-	int keymap_index;
-	guint index;
+	g_autofree gchar *tmp_file = nullptr;
+	g_autoptr(GError) error = nullptr;
 
-	fd = g_file_open_tmp("geeqie_keymap_XXXXXX.svg", &tmp_file, &error);
+	const gint fd = g_file_open_tmp("geeqie_keymap_XXXXXX.svg", &tmp_file, &error);
 	if (error)
 		{
-		log_printf("Error: Keyboard Map - cannot create file:%s\n",error->message);
-		g_error_free(error);
+		log_printf("Error: Keyboard Map - cannot create file:%s\n", error->message);
+		return;
 		}
-	else
-		{
-		array = g_ptr_array_new();
 
-		gtk_accel_map_foreach(array, layout_menu_foreach_func);
+	g_autoptr(GPtrArray) array = g_ptr_array_new_with_free_func(g_free);
+	gtk_accel_map_foreach(array, layout_menu_foreach_func);
 
-		channel = g_io_channel_unix_new(fd);
+	convert_keymap_template_to_file(fd, array);
 
-		keymap_index = 0;
-		while (keymap_template[keymap_index])
-			{
-			if (g_strrstr(keymap_template[keymap_index], ">key:"))
-				{
-				pre_key = g_strsplit(keymap_template[keymap_index],">key:",2);
-				post_key = g_strsplit(pre_key[1],"<",2);
-
-				index=0;
-				key_name = " ";
-				for (index=0; index < array->len-2; index=index+2)
-					{
-					if (!(g_ascii_strcasecmp(static_cast<const gchar *>(g_ptr_array_index(array,index+1)), post_key[0])))
-						{
-						key_name = static_cast<const gchar *>(g_ptr_array_index(array,index+0));
-						break;
-						}
-					}
-
-				for (const auto& m : keyboard_map_hardcoded)
-					{
-					if (!(g_strcmp0(m[1], post_key[0])))
-						{
-						key_name = m[0];
-						break;
-						}
-					}
-
-				converted_line = g_strconcat(pre_key[0], ">", key_name, "<", post_key[1], "\n", NULL);
-				g_io_channel_write_chars(channel, converted_line, -1, nullptr, &error);
-				if (error) {log_printf("Warning: Keyboard Map:%s\n",error->message); g_error_free(error);}
-
-				g_free(converted_line);
-				g_strfreev(pre_key);
-				g_strfreev(post_key);
-				}
-			else
-				{
-				g_io_channel_write_chars(channel, keymap_template[keymap_index], -1, nullptr, &error);
-				if (error) {log_printf("Warning: Keyboard Map:%s\n",error->message); g_error_free(error);}
-				g_io_channel_write_chars(channel, "\n", -1, nullptr, &error);
-				if (error) {log_printf("Warning: Keyboard Map:%s\n",error->message); g_error_free(error);}
-				}
-			keymap_index++;
-			}
-
-		g_io_channel_flush(channel, &error);
-		if (error) {log_printf("Warning: Keyboard Map:%s\n",error->message); g_error_free(error);}
-		g_io_channel_unref(channel);
-
-		index=0;
-		for (index=0; index < array->len-2; index=index+2)
-			{
-			g_free(g_ptr_array_index(array,index));
-			g_free(g_ptr_array_index(array,index+1));
-			}
-		g_ptr_array_unref(array);
-
-		view_window_new(file_data_new_simple(tmp_file));
-		g_free(tmp_file);
-		}
+	view_window_new(file_data_new_simple(tmp_file));
 }
 
 static void layout_menu_about_cb(GtkAction *, gpointer data)
@@ -1920,19 +1883,15 @@ static void layout_menu_up_cb(GtkAction *, gpointer data)
 {
 	auto lw = static_cast<LayoutWindow *>(data);
 	ViewDir *vd = lw->vd;
-	gchar *path;
 
 	if (!vd->dir_fd || strcmp(vd->dir_fd->path, G_DIR_SEPARATOR_S) == 0) return;
-	path = remove_level_from_path(vd->dir_fd->path);
 
-	if (vd->select_func)
-		{
-		FileData *fd = file_data_new_dir(path);
-		vd->select_func(vd, fd, vd->select_data);
-		file_data_unref(fd);
-		}
+	if (!vd->select_func) return;
 
-	g_free(path);
+	g_autofree gchar *path = remove_level_from_path(vd->dir_fd->path);
+	FileData *fd = file_data_new_dir(path);
+	vd->select_func(vd, fd, vd->select_data);
+	file_data_unref(fd);
 }
 
 
@@ -2049,18 +2008,15 @@ static void layout_color_menu_input_cb()
 static void layout_menu_recent_cb(GtkWidget *widget, gpointer)
 {
 	gint n;
-	gchar *path;
 
 	n = GPOINTER_TO_INT(g_object_get_data(G_OBJECT(widget), "recent_index"));
 
-	path = static_cast<gchar *>(g_list_nth_data(history_list_get_by_key("recent"), n));
-
-	if (!path) return;
+	const auto *recent_path = static_cast<const gchar *>(g_list_nth_data(history_list_get_by_key("recent"), n));
+	if (!recent_path) return;
 
 	/* make a copy of it */
-	path = g_strdup(path);
+	g_autofree gchar *path = g_strdup(recent_path);
 	collection_window_new(path);
-	g_free(path);
 }
 
 static void layout_menu_collection_recent_update(LayoutWindow *lw)
@@ -2113,7 +2069,6 @@ static void layout_menu_collection_recent_update(LayoutWindow *lw)
 
 static void layout_menu_collection_open_update(LayoutWindow *lw)
 {
-	gboolean free_name = FALSE;
 	gchar *name;
 	gint n;
 	GList *collection_list = nullptr;
@@ -2133,20 +2088,20 @@ static void layout_menu_collection_open_update(LayoutWindow *lw)
 	work = collection_list;
 	while (work)
 		{
-		const gchar *filename = static_cast<gchar *>(work->data);
+		auto *filename = static_cast<gchar *>(work->data);
 
-		if (file_extension_match(filename, GQ_COLLECTION_EXT))
+		const gboolean has_extension = file_extension_match(filename, GQ_COLLECTION_EXT);
+		if (has_extension)
 			{
 			name = remove_extension_from_path(filename);
-			free_name = TRUE;
 			}
 		else
 			{
-			name = const_cast<gchar *>(filename);
+			name = filename;
 			}
 
 		item = menu_item_add_simple(menu, name, G_CALLBACK(layout_menu_open_cb), lw);
-		if (free_name)
+		if (has_extension)
 			{
 			g_free(name);
 			}
@@ -2234,14 +2189,12 @@ static GList *layout_window_menu_list(GList *listin)
 	WindowNames *wn;
 	DIR *dp;
 	struct dirent *dir;
-	gchar *pathl;
 
-	pathl = path_from_utf8(get_window_layouts_dir());
+	g_autofree gchar *pathl = path_from_utf8(get_window_layouts_dir());
 	dp = opendir(pathl);
 	if (!dp)
 		{
 		/* dir not found */
-		g_free(pathl);
 		return listin;
 		}
 
@@ -2251,7 +2204,7 @@ static GList *layout_window_menu_list(GList *listin)
 
 		if (g_str_has_suffix(name_file, ".xml"))
 			{
-			gchar *name_utf8 = path_to_utf8(name_file);
+			g_autofree gchar *name_utf8 = path_to_utf8(name_file);
 			gchar *name_base = g_strndup(name_utf8, strlen(name_utf8) - 4);
 
 			wn  = g_new0(WindowNames, 1);
@@ -2259,13 +2212,9 @@ static GList *layout_window_menu_list(GList *listin)
 			wn->name = name_base;
 			wn->path = g_build_filename(pathl, name_utf8, NULL);
 			listin = g_list_append(listin, wn);
-
-			g_free(name_utf8);
 			}
 		}
 	closedir(dp);
-
-	g_free(pathl);
 
 	return g_list_sort(listin, layout_window_menu_list_sort_cb);
 }
@@ -2346,11 +2295,8 @@ static void window_rename_cancel_cb(GenericDialog *, gpointer data)
 static void window_rename_ok(GenericDialog *, gpointer data)
 {
 	auto rw = static_cast<RenameWindow *>(data);
-	gchar *path;
-	gchar *xml_name;
-	gchar *new_id;
 
-	new_id = g_strdup(gq_gtk_entry_get_text(GTK_ENTRY(rw->window_name_entry)));
+	const gchar *new_id = gq_gtk_entry_get_text(GTK_ENTRY(rw->window_name_entry));
 
 	const auto window_names_compare_name = [](gconstpointer data, gconstpointer user_data)
 	{
@@ -2359,22 +2305,18 @@ static void window_rename_ok(GenericDialog *, gpointer data)
 
 	if (g_list_find_custom(layout_window_menu_list(nullptr), new_id, window_names_compare_name))
 		{
-		gchar *buf;
-		buf = g_strdup_printf(_("Window layout name \"%s\" already exists."), new_id);
+		g_autofree gchar *buf = g_strdup_printf(_("Window layout name \"%s\" already exists."), new_id);
 		warning_dialog(_("Rename window"), buf, GQ_ICON_DIALOG_WARNING, rw->gd->dialog);
-		g_free(buf);
 		}
 	else
 		{
-		xml_name = g_strdup_printf("%s.xml", rw->lw->options.id);
-		path = g_build_filename(get_window_layouts_dir(), xml_name, NULL);
+		g_autofree gchar *xml_name = g_strdup_printf("%s.xml", rw->lw->options.id);
+		g_autofree gchar *path = g_build_filename(get_window_layouts_dir(), xml_name, NULL);
 
 		if (isfile(path))
 			{
 			unlink_file(path);
 			}
-		g_free(xml_name);
-		g_free(path);
 
 		g_free(rw->lw->options.id);
 		rw->lw->options.id = g_strdup(new_id);
@@ -2385,7 +2327,6 @@ static void window_rename_ok(GenericDialog *, gpointer data)
 
 	save_layout(rw->lw);
 
-	g_free(new_id);
 	generic_dialog_close(rw->gd);
 	g_free(rw);
 }
@@ -2414,11 +2355,9 @@ static void window_delete_cancel_cb(GenericDialog *, gpointer data)
 static void window_delete_ok_cb(GenericDialog *, gpointer data)
 {
 	auto dw = static_cast<DeleteWindow *>(data);
-	gchar *path;
-	gchar *xml_name;
 
-	xml_name = g_strdup_printf("%s.xml", dw->lw->options.id);
-	path = g_build_filename(get_window_layouts_dir(), xml_name, NULL);
+	g_autofree gchar *xml_name = g_strdup_printf("%s.xml", dw->lw->options.id);
+	g_autofree gchar *path = g_build_filename(get_window_layouts_dir(), xml_name, NULL);
 
 	layout_close(dw->lw);
 	g_free(dw);
@@ -2427,8 +2366,6 @@ static void window_delete_ok_cb(GenericDialog *, gpointer data)
 		{
 		unlink_file(path);
 		}
-	g_free(xml_name);
-	g_free(path);
 }
 
 static void layout_menu_window_default_cb(GtkWidget *, gpointer)
@@ -2441,31 +2378,26 @@ static void layout_menu_windows_menu_cb(GtkWidget *, gpointer data)
 	auto lw = static_cast<LayoutWindow *>(data);
 	GtkWidget *menu;
 	GtkWidget *sub_menu;
-	gchar *menu_label;
 	GList *children;
 	GList *iter;
-	gint i;
 
 	menu = gq_gtk_ui_manager_get_widget(lw->ui_manager, options->hamburger_menu ? "/MainMenu/OpenMenu/WindowsMenu/" : "/MainMenu/WindowsMenu/");
 
 	sub_menu = gtk_menu_item_get_submenu(GTK_MENU_ITEM(menu));
 
 	/* disable Delete for temporary windows */
-	if (g_str_has_prefix(lw->options.id, "lw"))
+	if (!g_str_has_prefix(lw->options.id, "lw")) return;
+
+	children = gtk_container_get_children(GTK_CONTAINER(sub_menu));
+	for (iter = children; iter != nullptr; iter = g_list_next(iter))
 		{
-		i = 0;
-		children = gtk_container_get_children(GTK_CONTAINER(sub_menu));
-		for (iter = children; iter != nullptr; iter = g_list_next(iter), i++)
+		const gchar *menu_label = gtk_menu_item_get_label(GTK_MENU_ITEM(iter->data));
+		if (g_strcmp0(menu_label, _("Delete window")) == 0)
 			{
-			menu_label = g_strdup(gtk_menu_item_get_label(GTK_MENU_ITEM(iter->data)));
-			if (g_strcmp0(menu_label, _("Delete window")) == 0)
-				{
-				gtk_widget_set_sensitive(GTK_WIDGET(iter->data), FALSE);
-				}
-			g_free(menu_label);
+			gtk_widget_set_sensitive(GTK_WIDGET(iter->data), FALSE);
 			}
-		g_list_free(children);
 		}
+	g_list_free(children);
 }
 
 static void layout_menu_view_menu_cb(GtkWidget *, gpointer data)
@@ -2473,123 +2405,99 @@ static void layout_menu_view_menu_cb(GtkWidget *, gpointer data)
 	auto lw = static_cast<LayoutWindow *>(data);
 	GtkWidget *menu;
 	GtkWidget *sub_menu;
-	gchar *menu_label;
 	GList *children;
 	GList *iter;
-	gint i;
 	FileData *fd;
 
 	menu = gq_gtk_ui_manager_get_widget(lw->ui_manager, options->hamburger_menu ? "/MainMenu/OpenMenu/ViewMenu/" : "/MainMenu/ViewMenu/");
 	sub_menu = gtk_menu_item_get_submenu(GTK_MENU_ITEM(menu));
 
 	fd = layout_image_get_fd(lw);
+	const gboolean sensitive = (fd && fd->format_class == FORMAT_CLASS_ARCHIVE);
 
-	i = 0;
 	children = gtk_container_get_children(GTK_CONTAINER(sub_menu));
-	for (iter = children; iter != nullptr; iter = g_list_next(iter), i++)
+	for (iter = children; iter != nullptr; iter = g_list_next(iter))
 		{
-		menu_label = g_strdup(gtk_menu_item_get_label(GTK_MENU_ITEM(iter->data)));
+		const gchar *menu_label = gtk_menu_item_get_label(GTK_MENU_ITEM(iter->data));
 		if (g_strcmp0(menu_label, _("Open archive")) == 0)
 			{
-			if (fd && fd->format_class == FORMAT_CLASS_ARCHIVE)
-				{
-				gtk_widget_set_sensitive(GTK_WIDGET(iter->data), TRUE);
-				}
-			else
-				{
-				gtk_widget_set_sensitive(GTK_WIDGET(iter->data), FALSE);
-				}
+			gtk_widget_set_sensitive(GTK_WIDGET(iter->data), sensitive);
 			}
-		g_free(menu_label);
 		}
 	g_list_free(children);
 }
 
+static gchar *create_tmp_config_file()
+{
+	gchar *tmp_file;
+	g_autoptr(GError) error = nullptr;
+
+	gint fd = g_file_open_tmp("geeqie_layout_name_XXXXXX.xml", &tmp_file, &error);
+	if (error)
+		{
+		log_printf("Error: Window layout - cannot create file: %s\n", error->message);
+		return nullptr;
+		}
+
+	close(fd);
+
+	return tmp_file;
+}
+
 static void change_window_id(const gchar *infile, const gchar *outfile)
 {
-	GFile *in_file;
-	GFile *out_file;
-	GFileInputStream *in_file_stream;
-	GFileOutputStream *out_file_stream;
-	GDataInputStream *in_data_stream;
-	GDataOutputStream *out_data_stream;
+	g_autoptr(GFile) in_file = g_file_new_for_path(infile);
+	g_autoptr(GFileInputStream) in_file_stream = g_file_read(in_file, nullptr, nullptr);
+	g_autoptr(GDataInputStream) in_data_stream = g_data_input_stream_new(G_INPUT_STREAM(in_file_stream));
+
+	g_autoptr(GFile) out_file = g_file_new_for_path(outfile);
+	g_autoptr(GFileOutputStream) out_file_stream = g_file_append_to(out_file, G_FILE_CREATE_PRIVATE, nullptr, nullptr);
+	g_autoptr(GDataOutputStream) out_data_stream = g_data_output_stream_new(G_OUTPUT_STREAM(out_file_stream));
+
+	g_autofree gchar *id_name = layout_get_unique_id();
+
 	gchar *line;
-	gchar *id_name;
-
-	id_name = layout_get_unique_id();
-
-	in_file = g_file_new_for_path(infile);
-	in_file_stream = g_file_read(in_file, nullptr, nullptr);
-	in_data_stream = g_data_input_stream_new(G_INPUT_STREAM(in_file_stream));
-
-	out_file = g_file_new_for_path(outfile);
-	out_file_stream = g_file_append_to(out_file, G_FILE_CREATE_PRIVATE, nullptr, nullptr);
-	out_data_stream = g_data_output_stream_new(G_OUTPUT_STREAM(out_file_stream));
-
 	while ((line = g_data_input_stream_read_line(in_data_stream, nullptr, nullptr, nullptr)))
 		{
+		g_data_output_stream_put_string(out_data_stream, line, nullptr, nullptr);
+		g_data_output_stream_put_string(out_data_stream, "\n", nullptr, nullptr);
+
 		if (g_str_has_suffix(line, "<layout"))
 			{
-			g_data_output_stream_put_string(out_data_stream, line, nullptr, nullptr);
-			g_data_output_stream_put_string(out_data_stream, "\n", nullptr, nullptr);
 			g_free(line);
-
 			line = g_data_input_stream_read_line(in_data_stream, nullptr, nullptr, nullptr);
+
 			g_data_output_stream_put_string(out_data_stream, "id = \"", nullptr, nullptr);
 			g_data_output_stream_put_string(out_data_stream, id_name, nullptr, nullptr);
 			g_data_output_stream_put_string(out_data_stream, "\"\n", nullptr, nullptr);
 			}
-		else
-			{
-			g_data_output_stream_put_string(out_data_stream, line, nullptr, nullptr);
-			g_data_output_stream_put_string(out_data_stream, "\n", nullptr, nullptr);
-			}
+
 		g_free(line);
 		}
-
-	g_free(id_name);
-	g_object_unref(out_data_stream);
-	g_object_unref(in_data_stream);
-	g_object_unref(out_file_stream);
-	g_object_unref(in_file_stream);
-	g_object_unref(out_file);
-	g_object_unref(in_file);
 }
 
 static void layout_menu_window_from_current_cb(GtkWidget *, gpointer data)
 {
-	auto lw = static_cast<LayoutWindow *>(data);
-	gint fd_in = -1;
-	gint fd_out = -1;
-	char * tmp_file_in;
-	char * tmp_file_out;
-	GError *error = nullptr;
-
-	fd_in = g_file_open_tmp("geeqie_layout_name_XXXXXX.xml", &tmp_file_in, &error);
-	if (error)
+	g_autofree gchar *tmp_file_in = create_tmp_config_file();
+	if (!tmp_file_in)
 		{
-		log_printf("Error: Window layout - cannot create file:%s\n",error->message);
-		g_error_free(error);
 		return;
 		}
-	close(fd_in);
-	fd_out = g_file_open_tmp("geeqie_layout_name_XXXXXX.xml", &tmp_file_out, &error);
-	if (error)
+
+	g_autofree gchar *tmp_file_out = create_tmp_config_file();
+	if (!tmp_file_out)
 		{
-		log_printf("Error: Window layout - cannot create file:%s\n",error->message);
-		g_error_free(error);
+		unlink_file(tmp_file_in);
 		return;
 		}
-	close(fd_out);
 
+	auto *lw = static_cast<LayoutWindow *>(data);
 	save_config_to_file(tmp_file_in, options, lw);
 	change_window_id(tmp_file_in, tmp_file_out);
 	load_config_from_file(tmp_file_out, FALSE);
 
 	unlink_file(tmp_file_in);
 	unlink_file(tmp_file_out);
-	g_free(tmp_file_in);
-	g_free(tmp_file_out);
 }
 
 static void layout_menu_window_cb(GtkWidget *, gpointer data)
@@ -2901,11 +2809,11 @@ static GtkRadioActionEntry menu_stereo_mode_entries[] = {
 };
 
 static GtkRadioActionEntry menu_draw_rectangle_aspect_ratios[] = {
-  { "CropNone",        nullptr, N_("None"), nullptr, N_("None"), RECTANGLE_DRAW_ASPECT_RATIO_NONE },
-  { "CropOneOne",      nullptr, N_("1:1"),  nullptr, N_("1:1"),  RECTANGLE_DRAW_ASPECT_RATIO_ONE_ONE },
-  { "CropFourThree",   nullptr, N_("4:3"),  nullptr, N_("4:3"),  RECTANGLE_DRAW_ASPECT_RATIO_FOUR_THREE },
-  { "CropThreeTwo",    nullptr, N_("3:2"),  nullptr, N_("3:2"),  RECTANGLE_DRAW_ASPECT_RATIO_THREE_TWO },
-  { "CropSixteenNine", nullptr, N_("16:9"), nullptr, N_("16:9"), RECTANGLE_DRAW_ASPECT_RATIO_SIXTEEN_NINE }
+  { "CropNone",        nullptr, N_("Crop None"), nullptr, N_("Crop rectangle None"), RECTANGLE_DRAW_ASPECT_RATIO_NONE },
+  { "CropOneOne",      nullptr, N_("Crop 1:1"),  nullptr, N_("Crop rectangle 1:1"),  RECTANGLE_DRAW_ASPECT_RATIO_ONE_ONE },
+  { "CropFourThree",   nullptr, N_("Crop 4:3"),  nullptr, N_("Crop rectangle 4:3"),  RECTANGLE_DRAW_ASPECT_RATIO_FOUR_THREE },
+  { "CropThreeTwo",    nullptr, N_("Crop 3:2"),  nullptr, N_("Crop rectangle 3:2"),  RECTANGLE_DRAW_ASPECT_RATIO_THREE_TWO },
+  { "CropSixteenNine", nullptr, N_("Crop 16:9"), nullptr, N_("Crop rectangle 16:9"), RECTANGLE_DRAW_ASPECT_RATIO_SIXTEEN_NINE }
 };
 #undef CB
 
@@ -2945,8 +2853,7 @@ static void layout_actions_setup_mark(LayoutWindow *lw, gint mark, const gchar *
 static void layout_actions_setup_marks(LayoutWindow *lw)
 {
 	gint mark;
-	GError *error;
-	GString *desc = g_string_new(
+	g_autoptr(GString) desc = g_string_new(
 				"<ui>"
 				"  <menubar name='MainMenu'>");
 
@@ -3007,35 +2914,26 @@ static void layout_actions_setup_marks(LayoutWindow *lw)
 		}
 	g_string_append(desc,   "</ui>" );
 
-	error = nullptr;
+	g_autoptr(GError) error = nullptr;
 	if (!gq_gtk_ui_manager_add_ui_from_string(lw->ui_manager, desc->str, -1, &error))
 		{
 		g_message("building menus failed: %s", error->message);
-		g_error_free(error);
 		exit(EXIT_FAILURE);
 		}
-	g_string_free(desc, TRUE);
 }
 
 static GList *layout_actions_editor_menu_path(EditorDescription *editor)
 {
-	gchar **split = g_strsplit(editor->menu_path, "/", 0);
-	gint i = 0;
+	g_auto(GStrv) split = g_strsplit(editor->menu_path, "/", 0);
+
+	const guint split_count = g_strv_length(split);
+	if (split_count == 0) return nullptr;
+
 	GList *ret = nullptr;
-
-	if (split[0] == nullptr)
-		{
-		g_strfreev(split);
-		return nullptr;
-		}
-
-	while (split[i])
+	for (guint i = 0; i < split_count; i++)
 		{
 		ret = g_list_prepend(ret, g_strdup(split[i]));
-		i++;
 		}
-
-	g_strfreev(split);
 
 	ret = g_list_prepend(ret, g_strdup(editor->key));
 
@@ -3103,11 +3001,9 @@ static void layout_actions_editor_add(GString *desc, GList *path, GList *old_pat
 
 static void layout_actions_setup_editors(LayoutWindow *lw)
 {
-	GError *error;
 	GList *editors_list;
 	GList *work;
 	GList *old_path;
-	GString *desc;
 
 	if (lw->ui_editors_id)
 		{
@@ -3123,7 +3019,7 @@ static void layout_actions_setup_editors(LayoutWindow *lw)
 	gq_gtk_ui_manager_insert_action_group(lw->ui_manager, lw->action_group_editors, 1);
 
 	/* lw->action_group_editors contains translated entries, no translate func is required */
-	desc = g_string_new(
+	g_autoptr(GString) desc = g_string_new(
 				"<ui>"
 				"  <menubar name='MainMenu'>");
 
@@ -3196,19 +3092,19 @@ static void layout_actions_setup_editors(LayoutWindow *lw)
 		g_string_append(desc, "</menu>");
 		}
 
-	g_string_append(desc,"  </menubar>"
-				"</ui>" );
+	g_string_append(desc,
+	                "  </menubar>"
+	                "</ui>" );
 
-	error = nullptr;
+	g_autoptr(GError) error = nullptr;
 
 	lw->ui_editors_id = gq_gtk_ui_manager_add_ui_from_string(lw->ui_manager, desc->str, -1, &error);
 	if (!lw->ui_editors_id)
 		{
 		g_message("building menus failed: %s", error->message);
-		g_error_free(error);
 		exit(EXIT_FAILURE);
 		}
-	g_string_free(desc, TRUE);
+
 	g_list_free(editors_list);
 }
 
@@ -3226,8 +3122,6 @@ void create_toolbars(LayoutWindow *lw)
 
 void layout_actions_setup(LayoutWindow *lw)
 {
-	GError *error;
-
 	DEBUG_1("%s layout_actions_setup: start", get_exec_time());
 	if (lw->ui_manager) return;
 
@@ -3269,12 +3163,11 @@ void layout_actions_setup(LayoutWindow *lw)
 	gq_gtk_ui_manager_insert_action_group(lw->ui_manager, lw->action_group, 0);
 
 	DEBUG_1("%s layout_actions_setup: add menu", get_exec_time());
-	error = nullptr;
+	g_autoptr(GError) error = nullptr;
 
 	if (!gq_gtk_ui_manager_add_ui_from_resource(lw->ui_manager, options->hamburger_menu ? GQ_RESOURCE_PATH_UI "/menu-hamburger.ui" : GQ_RESOURCE_PATH_UI "/menu-classic.ui" , &error))
 		{
 		g_message("building menus failed: %s", error->message);
-		g_error_free(error);
 		exit(EXIT_FAILURE);
 		}
 
@@ -3328,6 +3221,16 @@ static gboolean layout_editors_reload_idle_cb(gpointer)
 			}
 
 		DEBUG_1("%s layout_editors_reload_idle_cb: setup_editors done", get_exec_time());
+
+		/* The toolbars need to be regenerated in case they contain a plugin */
+		LayoutWindow *lw = nullptr;
+		layout_valid(&lw);
+
+		toolbar_select_new(lw, TOOLBAR_MAIN);
+		toolbar_apply(TOOLBAR_MAIN);
+
+		toolbar_select_new(lw, TOOLBAR_STATUS);
+		toolbar_apply(TOOLBAR_STATUS);
 
 		layout_editors_reload_idle_id = -1;
 		return G_SOURCE_REMOVE;
@@ -3723,7 +3626,7 @@ void layout_toolbar_write_config(LayoutWindow *lw, ToolbarType type, GString *ou
 
 void layout_toolbar_add_from_config(LayoutWindow *lw, ToolbarType type, const char **attribute_names, const gchar **attribute_values)
 {
-	gchar *action = nullptr;
+	g_autofree gchar *action = nullptr;
 
 	while (*attribute_names)
 		{
@@ -3732,11 +3635,10 @@ void layout_toolbar_add_from_config(LayoutWindow *lw, ToolbarType type, const ch
 
 		if (READ_CHAR_FULL("action", action)) continue;
 
-		log_printf("unknown attribute %s = %s\n", option, value);
+		config_file_error((std::string("Unknown attribute: ") + option + " = " + value).c_str());
 		}
 
 	layout_toolbar_add(lw, type, action);
-	g_free(action);
 }
 
 /*
@@ -3753,9 +3655,8 @@ void layout_util_status_update_write(LayoutWindow *lw)
 	gq_gtk_action_set_sensitive(action, n > 0);
 	if (n > 0)
 		{
-		gchar *buf = g_strdup_printf(_("Number of files with unsaved metadata: %d"), n);
+		g_autofree gchar *buf = g_strdup_printf(_("Number of files with unsaved metadata: %d"), n);
 		g_object_set(G_OBJECT(action), "tooltip", buf, NULL);
-		g_free(buf);
 		}
 	else
 		{
@@ -3791,10 +3692,6 @@ void layout_util_sync_color(LayoutWindow *lw)
 	gboolean use_image = FALSE;
 	gint i;
 	gchar action_name[15];
-#if HAVE_LCMS
-	gchar *image_profile;
-	gchar *screen_profile;
-#endif
 
 	if (!lw->action_group) return;
 	if (!layout_image_color_profile_get(lw, input, use_image)) return;
@@ -3804,14 +3701,13 @@ void layout_util_sync_color(LayoutWindow *lw)
 	action = gq_gtk_action_group_get_action(lw->action_group, "UseColorProfiles");
 #if HAVE_LCMS
 	gq_gtk_toggle_action_set_active(GTK_TOGGLE_ACTION(action), use_color);
+
+	g_autofree gchar *image_profile = nullptr;
+	g_autofree gchar *screen_profile = nullptr;
 	if (layout_image_color_profile_get_status(lw, &image_profile, &screen_profile))
 		{
-		gchar *buf;
-		buf = g_strdup_printf(_("Image profile: %s\nScreen profile: %s"), image_profile, screen_profile);
+		g_autofree gchar *buf = g_strdup_printf(_("Image profile: %s\nScreen profile: %s"), image_profile, screen_profile);
 		g_object_set(G_OBJECT(action), "tooltip", buf, NULL);
-		g_free(image_profile);
-		g_free(screen_profile);
-		g_free(buf);
 		}
 	else
 		{
@@ -3836,17 +3732,13 @@ void layout_util_sync_color(LayoutWindow *lw)
 			{
 			const gchar *name = options->color_profile.input_name[i - COLOR_PROFILE_FILE];
 			const gchar *file = options->color_profile.input_file[i - COLOR_PROFILE_FILE];
-			gchar *end;
-			gchar *buf;
 
 			if (!name || !name[0]) name = filename_from_path(file);
 
-			end = layout_color_name_parse(name);
-			buf = g_strdup_printf(_("Input _%d: %s"), i, end);
-			g_free(end);
+			g_autofree gchar *end = layout_color_name_parse(name);
+			g_autofree gchar *buf = g_strdup_printf(_("Input _%d: %s"), i, end);
 
 			g_object_set(G_OBJECT(action), "label", buf, NULL);
-			g_free(buf);
 
 			gq_gtk_action_set_visible(action, file && file[0]);
 			}

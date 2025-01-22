@@ -1701,10 +1701,6 @@ msgstr "Bredd"
 msgid "Height"
 msgstr "Höjd"
 
-#: src/dupe.cc:5150
-msgid "Path\n"
-msgstr "Sökväg\n"
-
 #: src/dupe.cc:5249
 msgid "Export duplicates data"
 msgstr "Exportera dubblett-data"
@@ -8624,15 +8620,6 @@ msgstr ""
 
 #~ msgid "View as _Icons"
 #~ msgstr "Visa som _ikoner"
-
-#~ msgid "UFRaw Batch"
-#~ msgstr "UFRaw batch"
-
-#~ msgid "Edit UFRaw ID file"
-#~ msgstr "Redigera ID-filen till UFRaw"
-
-#~ msgid "UFRaw Batch recursive"
-#~ msgstr "UFRaw batch, rekursivt"
 
 #, fuzzy
 #~ msgid "_Show Guidelines"

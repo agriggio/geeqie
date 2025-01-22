@@ -24,6 +24,7 @@
 #include <algorithm>
 #include <cstdlib>
 #include <cstring>
+#include <utility>
 #include <vector>
 
 #include <config.h>
@@ -52,12 +53,10 @@
 #include "cache.h"
 #include "color-man.h"
 #include "compat.h"
-#include "debug.h"
 #include "editors.h"
 #include "filedata.h"
 #include "filefilter.h"
 #include "fullscreen.h"
-#include "image-overlay.h"
 #include "image.h"
 #include "img-view.h"
 #include "intl.h"
@@ -100,7 +99,7 @@ enum {
 
 static void image_overlay_set_text_colors();
 
-GtkWidget *keyword_text;
+static GtkWidget *keyword_text;
 static void config_tab_keywords_save();
 
 struct ThumbSize
@@ -204,7 +203,7 @@ enum {
 
 static void zoom_increment_cb(GtkWidget *spin, gpointer)
 {
-	c_options->image.zoom_increment = static_cast<gint>(gtk_spin_button_get_value(GTK_SPIN_BUTTON(spin)) * 100.0 + 0.01);
+	c_options->image.zoom_increment = static_cast<gint>((gtk_spin_button_get_value(GTK_SPIN_BUTTON(spin)) * 100.0) + 0.01);
 }
 
 static void slideshow_delay_hours_cb(GtkWidget *spin, gpointer)
@@ -248,8 +247,8 @@ static void slideshow_delay_seconds_cb(GtkWidget *spin, gpointer)
 	hours_mins = c_options->slideshow.delay / (60 * SLIDESHOW_SUBSECOND_PRECISION);
 
 	delay = (hours_mins * (60 * SLIDESHOW_SUBSECOND_PRECISION)) +
-							static_cast<gint>(gtk_spin_button_get_value(GTK_SPIN_BUTTON(spin)) *
-							static_cast<gdouble>(SLIDESHOW_SUBSECOND_PRECISION) + 0.01);
+							static_cast<gint>((gtk_spin_button_get_value(GTK_SPIN_BUTTON(spin)) *
+							static_cast<gdouble>(SLIDESHOW_SUBSECOND_PRECISION)) + 0.01);
 
 	c_options->slideshow.delay = delay > 0 ? delay : SLIDESHOW_MIN_SECONDS *
 													SLIDESHOW_SUBSECOND_PRECISION;
@@ -283,8 +282,8 @@ void config_entry_to_option(GtkWidget *entry, gchar **option, gchar *(*func)(con
 
 static gboolean accel_apply_cb(GtkTreeModel *model, GtkTreePath *, GtkTreeIter *iter, gpointer)
 {
-	gchar *accel_path;
-	gchar *accel;
+	g_autofree gchar *accel_path = nullptr;
+	g_autofree gchar *accel = nullptr;
 
 	gtk_tree_model_get(model, iter, AE_ACCEL, &accel_path, AE_KEY, &accel, -1);
 
@@ -294,9 +293,6 @@ static gboolean accel_apply_cb(GtkTreeModel *model, GtkTreePath *, GtkTreeIter *
 		gtk_accelerator_parse(accel, &key.accel_key, &key.accel_mods);
 		gtk_accel_map_change_entry(accel_path, key.accel_key, key.accel_mods, TRUE);
 		}
-
-	g_free(accel_path);
-	g_free(accel);
 
 	return FALSE;
 }
@@ -418,11 +414,15 @@ static void config_window_apply()
 	options->fullscreen.disable_saver = c_options->fullscreen.disable_saver;
 	options->fullscreen.above = c_options->fullscreen.above;
 	if (c_options->image_overlay.template_string)
-		set_image_overlay_template_string(&options->image_overlay.template_string,
-						  c_options->image_overlay.template_string);
+		{
+		g_free(options->image_overlay.template_string);
+		options->image_overlay.template_string = g_strdup(c_options->image_overlay.template_string);
+		}
 	if (c_options->image_overlay.font)
-		set_image_overlay_font_string(&options->image_overlay.font,
-						  c_options->image_overlay.font);
+		{
+		g_free(options->image_overlay.font);
+		options->image_overlay.font = g_strdup(c_options->image_overlay.font);
+		}
 	options->image_overlay.text_red = c_options->image_overlay.text_red;
 	options->image_overlay.text_green = c_options->image_overlay.text_green;
 	options->image_overlay.text_blue = c_options->image_overlay.text_blue;
@@ -869,7 +869,7 @@ static void thumb_size_menu_cb(GtkWidget *combo, gpointer)
 	n = gtk_combo_box_get_active(GTK_COMBO_BOX(combo));
 	if (n < 0) return;
 
-	if (static_cast<guint>(n) < sizeof(thumb_size_list) / sizeof(ThumbSize))
+	if (static_cast<guint>(n) < G_N_ELEMENTS(thumb_size_list))
 		{
 		c_options->thumbnails.max_width = thumb_size_list[n].w;
 		c_options->thumbnails.max_height = thumb_size_list[n].h;
@@ -895,29 +895,24 @@ static void add_thumb_size_menu(GtkWidget *table, gint column, gint row, gchar *
 	combo = gtk_combo_box_text_new();
 
 	current = -1;
-	for (i = 0; static_cast<guint>(i) < sizeof(thumb_size_list) / sizeof(ThumbSize); i++)
+	for (i = 0; static_cast<guint>(i) < G_N_ELEMENTS(thumb_size_list); i++)
 		{
 		gint w;
 		gint h;
-		gchar *buf;
 
 		w = thumb_size_list[i].w;
 		h = thumb_size_list[i].h;
 
-		buf = g_strdup_printf("%d x %d", w, h);
+		g_autofree gchar *buf = g_strdup_printf("%d x %d", w, h);
 		gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(combo), buf);
-		g_free(buf);
 
 		if (w == options->thumbnails.max_width && h == options->thumbnails.max_height) current = i;
 		}
 
 	if (current == -1)
 		{
-		gchar *buf;
-
-		buf = g_strdup_printf("%s %d x %d", _("Custom"), options->thumbnails.max_width, options->thumbnails.max_height);
+		g_autofree gchar *buf = g_strdup_printf("%s %d x %d", _("Custom"), options->thumbnails.max_width, options->thumbnails.max_height);
 		gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(combo), buf);
-		g_free(buf);
 
 		current = i;
 		}
@@ -1439,8 +1434,8 @@ static void image_overlay_template_view_changed_cb(GtkWidget *, gpointer data)
 	gtk_text_buffer_get_start_iter(pTextBuffer, &iStart);
 	gtk_text_buffer_get_end_iter(pTextBuffer, &iEnd);
 
-	set_image_overlay_template_string(&c_options->image_overlay.template_string,
-					  gtk_text_buffer_get_text(pTextBuffer, &iStart, &iEnd, TRUE));
+	g_free(c_options->image_overlay.template_string);
+	c_options->image_overlay.template_string = g_strdup(gtk_text_buffer_get_text(pTextBuffer, &iStart, &iEnd, TRUE));
 }
 
 static void image_overlay_default_template_ok_cb(GenericDialog *, gpointer data)
@@ -1448,7 +1443,7 @@ static void image_overlay_default_template_ok_cb(GenericDialog *, gpointer data)
 	auto text_view = static_cast<GtkTextView *>(data);
 	GtkTextBuffer *buffer;
 
-	set_default_image_overlay_template_string(&options->image_overlay.template_string);
+	set_default_image_overlay_template_string(options);
 	if (!configwindow) return;
 
 	buffer = gtk_text_view_get_buffer(GTK_TEXT_VIEW(text_view));
@@ -1476,25 +1471,22 @@ static void image_overlay_help_cb(GtkWidget *, gpointer)
 static void font_activated_cb(GtkFontChooser *widget, gchar *fontname, gpointer)
 {
 	g_free(c_options->image_overlay.font);
-	c_options->image_overlay.font = g_strdup(fontname);
-	g_free(fontname);
+	c_options->image_overlay.font = fontname;
 
 	gq_gtk_widget_destroy(GTK_WIDGET(widget));
 }
 
 static void font_response_cb(GtkDialog *dialog, gint response_id, gpointer)
 {
-	gchar *font;
-
 	g_free(c_options->image_overlay.font);
-	c_options->image_overlay.font = g_strdup(options->image_overlay.font);
 
 	if (response_id == GTK_RESPONSE_OK)
 		{
-		font = gtk_font_chooser_get_font(GTK_FONT_CHOOSER(dialog));
-		g_free(c_options->image_overlay.font);
-		c_options->image_overlay.font = g_strdup(font);
-		g_free(font);
+		c_options->image_overlay.font = gtk_font_chooser_get_font(GTK_FONT_CHOOSER(dialog));
+		}
+	else
+		{
+		c_options->image_overlay.font = g_strdup(options->image_overlay.font);
 		}
 
 	gq_gtk_widget_destroy(GTK_WIDGET(dialog));
@@ -1620,7 +1612,6 @@ static void accel_store_populate()
 	GList *actions;
 	GtkAction *action;
 	const gchar *accel_path;
-	const gchar *icon_name;
 	GtkAccelKey key;
 	GtkTreeIter iter;
 
@@ -1640,26 +1631,24 @@ static void accel_store_populate()
 			accel_path = gq_gtk_action_get_accel_path(action);
 			if (accel_path && gtk_accel_map_lookup_entry(accel_path, &key))
 				{
-				gchar *label;
-				gchar *label2;
-				gchar *tooltip;
-				gchar *accel;
+				g_autofree gchar *label = nullptr;
+				g_autofree gchar *tooltip = nullptr;
 				g_object_get(action,
 					     "tooltip", &tooltip,
 					     "label", &label,
 					     NULL);
 
-				if (pango_parse_markup(label, -1, '_', nullptr, &label2, nullptr, nullptr) && label2)
-					{
-					g_free(label);
-					label = label2;
-					}
-
-				accel = gtk_accelerator_name(key.accel_key, key.accel_mods);
-				icon_name = gq_gtk_action_get_icon_name(action);
-
 				if (tooltip)
 					{
+					g_autofree gchar *label2 = nullptr;
+					if (pango_parse_markup(label, -1, '_', nullptr, &label2, nullptr, nullptr) && label2)
+						{
+						std::swap(label, label2);
+						}
+
+					g_autofree gchar *accel = gtk_accelerator_name(key.accel_key, key.accel_mods);
+					const gchar *icon_name = gq_gtk_action_get_icon_name(action);
+
 					gtk_tree_store_append(accel_store, &iter, nullptr);
 					gtk_tree_store_set(accel_store, &iter,
 					                   AE_ACTION, label,
@@ -1669,10 +1658,6 @@ static void accel_store_populate()
 					                   AE_ICON, icon_name,
 					                   -1);
 					}
-
-				g_free(accel);
-				g_free(label);
-				g_free(tooltip);
 				}
 			actions = actions->next;
 			}
@@ -1689,7 +1674,7 @@ static void accel_store_cleared_cb(GtkCellRendererAccel *, gchar *, gpointer)
 static gboolean accel_remove_key_cb(GtkTreeModel *model, GtkTreePath *, GtkTreeIter *iter, gpointer data)
 {
 	auto accel1 = static_cast<gchar *>(data);
-	gchar *accel2;
+	g_autofree gchar *accel2 = nullptr;
 	GtkAccelKey key1;
 	GtkAccelKey key2;
 
@@ -1704,8 +1689,6 @@ static gboolean accel_remove_key_cb(GtkTreeModel *model, GtkTreePath *, GtkTreeI
 		DEBUG_1("accelerator key '%s' is already used, removing.", accel1);
 		}
 
-	g_free(accel2);
-
 	return FALSE;
 }
 
@@ -1714,8 +1697,7 @@ static void accel_store_edited_cb(GtkCellRendererAccel *, gchar *path_string, gu
 {
 	GtkTreeModel *model = GTK_TREE_MODEL(accel_store);
 	GtkTreeIter iter;
-	gchar *acc;
-	gchar *accel_path;
+	g_autofree gchar *accel_path = nullptr;
 	GtkAccelKey old_key;
 	GtkAccelKey key;
 	GtkTreePath *path = gtk_tree_path_new_from_string(path_string);
@@ -1733,12 +1715,11 @@ static void accel_store_edited_cb(GtkCellRendererAccel *, gchar *path_string, gu
 	/* restore the original for now, the key will be really changed when the changes are confirmed */
 	gtk_accel_map_change_entry(accel_path, old_key.accel_key, old_key.accel_mods, TRUE);
 
-	acc = gtk_accelerator_name(key.accel_key, key.accel_mods);
+	g_autofree gchar *acc = gtk_accelerator_name(key.accel_key, key.accel_mods);
 	gtk_tree_model_foreach(GTK_TREE_MODEL(accel_store), accel_remove_key_cb, acc);
 
 	gtk_tree_store_set(accel_store, &iter, AE_KEY, acc, -1);
 	gtk_tree_path_free(path);
-	g_free(acc);
 }
 
 static gboolean accel_default_scroll(gpointer data)
@@ -1775,18 +1756,15 @@ static void accel_clear_selection(GtkTreeModel *, GtkTreePath *, GtkTreeIter *it
 static void accel_reset_selection(GtkTreeModel *model, GtkTreePath *, GtkTreeIter *iter, gpointer)
 {
 	GtkAccelKey key;
-	gchar *accel_path;
-	gchar *accel;
+	g_autofree gchar *accel_path = nullptr;
 
 	gtk_tree_model_get(model, iter, AE_ACCEL, &accel_path, -1);
 	gtk_accel_map_lookup_entry(accel_path, &key);
-	accel = gtk_accelerator_name(key.accel_key, key.accel_mods);
+	g_autofree gchar *accel = gtk_accelerator_name(key.accel_key, key.accel_mods);
 
 	gtk_tree_model_foreach(GTK_TREE_MODEL(accel_store), accel_remove_key_cb, accel);
 
 	gtk_tree_store_set(accel_store, iter, AE_KEY, accel, -1);
-	g_free(accel_path);
-	g_free(accel);
 }
 
 static void accel_clear_cb(GtkWidget *, gpointer data)
@@ -1877,13 +1855,10 @@ static void help_search_engine_entry_icon_cb(GtkEntry *, GtkEntryIconPosition po
 
 static void star_rating_star_icon_cb(GtkEntry *, GtkEntryIconPosition pos, GdkEvent *, gpointer userdata)
 {
-	gchar *rating_symbol;
-
 	if (pos == GTK_ENTRY_ICON_PRIMARY)
 		{
-		rating_symbol = g_strdup_printf("U+%X", STAR_RATING_STAR);
+		g_autofree gchar *rating_symbol = g_strdup_printf("U+%X", STAR_RATING_STAR);
 		gq_gtk_entry_set_text(GTK_ENTRY(userdata), rating_symbol);
-		g_free(rating_symbol);
 		}
 	else
 		{
@@ -1895,13 +1870,10 @@ static void star_rating_star_icon_cb(GtkEntry *, GtkEntryIconPosition pos, GdkEv
 
 static void star_rating_rejected_icon_cb(GtkEntry *, GtkEntryIconPosition pos, GdkEvent *, gpointer userdata)
 {
-	gchar *rating_symbol;
-
 	if (pos == GTK_ENTRY_ICON_PRIMARY)
 		{
-		rating_symbol = g_strdup_printf("U+%X", STAR_RATING_REJECTED);
+		g_autofree gchar *rating_symbol = g_strdup_printf("U+%X", STAR_RATING_REJECTED);
 		gq_gtk_entry_set_text(GTK_ENTRY(userdata), rating_symbol);
-		g_free(rating_symbol);
 		}
 	else
 		{
@@ -1914,33 +1886,28 @@ static void star_rating_rejected_icon_cb(GtkEntry *, GtkEntryIconPosition pos, G
 static guint star_rating_symbol_test(GtkWidget *, gpointer data)
 {
 	auto hbox = static_cast<GtkContainer *>(data);
-	GString *str = g_string_new(nullptr);
+	g_autoptr(GString) str = g_string_new(nullptr);
 	GtkEntry *hex_code_entry;
-	gchar *hex_code_full;
-	gchar **hex_code;
 	GList *list;
 	guint64 hex_value = 0;
 
 	list = gtk_container_get_children(hbox);
 
 	hex_code_entry = static_cast<GtkEntry *>(g_list_nth_data(list, 2));
-	hex_code_full = g_strdup(gq_gtk_entry_get_text(hex_code_entry));
+	const gchar *hex_code_full = gq_gtk_entry_get_text(hex_code_entry);
 
-	hex_code = g_strsplit(hex_code_full, "+", 2);
+	g_auto(GStrv) hex_code = g_strsplit(hex_code_full, "+", 2);
 	if (hex_code[0] && hex_code[1])
 		{
 		hex_value = strtoull(hex_code[1], nullptr, 16);
 		}
+
 	if (!hex_value || hex_value > 0x10FFFF)
 		{
 		hex_value = 0x003F; // Unicode 'Question Mark'
 		}
 	str = g_string_append_unichar(str, static_cast<gunichar>(hex_value));
 	gtk_label_set_text(static_cast<GtkLabel *>(g_list_nth_data(list, 1)), str->str);
-
-	g_strfreev(hex_code);
-	g_string_free(str, TRUE);
-	g_free(hex_code_full);
 
 	return hex_value;
 }
@@ -1990,11 +1957,6 @@ static void config_tab_general(GtkWidget *notebook)
 	gint remainder;
 	gdouble seconds;
 	GtkWidget *star_rating_entry;
-	GString *str;
-	gchar *rating_symbol;
-	gchar *path;
-	gchar *basename;
-	gchar *download_locn;
 	GNetworkMonitor *net_mon;
 	GSocketConnectable *tz_org;
 	gboolean internet_available = FALSE;
@@ -2064,14 +2026,14 @@ static void config_tab_general(GtkWidget *notebook)
 	c_options->star_rating.star = options->star_rating.star;
 	c_options->star_rating.rejected = options->star_rating.rejected;
 
-	str = g_string_new(nullptr);
+	g_autoptr(GString) star_str = g_string_new(nullptr);
 	hbox = pref_box_new(group, FALSE, GTK_ORIENTATION_HORIZONTAL, PREF_PAD_SPACE);
 	pref_label_new(hbox, _("Star character: "));
-	str = g_string_append_unichar(str, options->star_rating.star);
-	pref_label_new(hbox, g_strdup(str->str));
-	rating_symbol = g_strdup_printf("U+%X", options->star_rating.star);
+	star_str = g_string_append_unichar(star_str, options->star_rating.star);
+	pref_label_new(hbox, star_str->str);
+	g_autofree gchar *star_rating_symbol = g_strdup_printf("U+%X", options->star_rating.star);
 	star_rating_entry = gtk_entry_new();
-	gq_gtk_entry_set_text(GTK_ENTRY(star_rating_entry), rating_symbol);
+	gq_gtk_entry_set_text(GTK_ENTRY(star_rating_entry), star_rating_symbol);
 	gq_gtk_box_pack_start(GTK_BOX(hbox), star_rating_entry, FALSE, FALSE, 0);
 	gtk_entry_set_width_chars(GTK_ENTRY(star_rating_entry), 15);
 	gtk_widget_show(star_rating_entry);
@@ -2093,17 +2055,14 @@ static void config_tab_general(GtkWidget *notebook)
 						G_CALLBACK(star_rating_star_icon_cb),
 						star_rating_entry);
 
-	g_string_free(str, TRUE);
-	g_free(rating_symbol);
-
-	str = g_string_new(nullptr);
+	g_autoptr(GString) rejected_str = g_string_new(nullptr);
 	hbox = pref_box_new(group, FALSE, GTK_ORIENTATION_HORIZONTAL, PREF_PAD_SPACE);
 	pref_label_new(hbox, _("Rejected character: "));
-	str = g_string_append_unichar(str, options->star_rating.rejected);
-	pref_label_new(hbox, g_strdup(str->str));
-	rating_symbol = g_strdup_printf("U+%X", options->star_rating.rejected);
+	rejected_str = g_string_append_unichar(rejected_str, options->star_rating.rejected);
+	pref_label_new(hbox, rejected_str->str);
+	g_autofree gchar *rejected_rating_symbol = g_strdup_printf("U+%X", options->star_rating.rejected);
 	star_rating_entry = gtk_entry_new();
-	gq_gtk_entry_set_text(GTK_ENTRY(star_rating_entry), rating_symbol);
+	gq_gtk_entry_set_text(GTK_ENTRY(star_rating_entry), rejected_rating_symbol);
 	gq_gtk_box_pack_start(GTK_BOX(hbox), star_rating_entry, FALSE, FALSE, 0);
 	gtk_entry_set_width_chars(GTK_ENTRY(star_rating_entry), 15);
 	gtk_widget_show(star_rating_entry);
@@ -2124,9 +2083,6 @@ static void config_tab_general(GtkWidget *notebook)
 	g_signal_connect(GTK_ENTRY(star_rating_entry), "icon-press",
 						G_CALLBACK(star_rating_rejected_icon_cb),
 						star_rating_entry);
-
-	g_string_free(str, TRUE);
-	g_free(rating_symbol);
 
 	pref_spacer(group, PREF_PAD_GROUP);
 
@@ -2234,11 +2190,7 @@ static void config_tab_general(GtkWidget *notebook)
 
 	tz = g_new0(TZData, 1);
 
-	path = path_from_utf8(TIMEZONE_DATABASE_WEB);
-	basename = g_path_get_basename(path);
 	tz->timezone_database_user = g_build_filename(get_rc_dir(), TIMEZONE_DATABASE_FILE, NULL);
-	g_free(path);
-	g_free(basename);
 
 	if (isfile(tz->timezone_database_user))
 		{
@@ -2249,9 +2201,8 @@ static void config_tab_general(GtkWidget *notebook)
 		button = pref_button_new(GTK_WIDGET(hbox), nullptr, _("Install"), G_CALLBACK(timezone_database_install_cb), tz);
 		}
 
-	download_locn = g_strconcat(_("Download database from: "), TIMEZONE_DATABASE_WEB, NULL);
+	g_autofree gchar *download_locn = g_strconcat(_("Download database from: "), TIMEZONE_DATABASE_WEB, NULL);
 	pref_label_new(GTK_WIDGET(hbox), download_locn);
-	g_free(download_locn);
 
 	if (!internet_available)
 		{
@@ -2374,7 +2325,6 @@ static void config_tab_image(GtkWidget *notebook)
 static void save_default_window_layout_cb(GtkWidget *, gpointer)
 {
 	LayoutWindow *lw = nullptr;
-	gchar *default_path;
 	gchar *tmp_id;
 
 	/* Get current lw */
@@ -2383,11 +2333,10 @@ static void save_default_window_layout_cb(GtkWidget *, gpointer)
 	tmp_id = lw->options.id;
 	lw->options.id = g_strdup("");
 
-	default_path = g_build_filename(get_rc_dir(), DEFAULT_WINDOW_LAYOUT, NULL);
+	g_autofree gchar *default_path = g_build_filename(get_rc_dir(), DEFAULT_WINDOW_LAYOUT, NULL);
 	save_default_layout_options_to_file(default_path, options, lw);
 	g_free(lw->options.id);
 	lw->options.id = tmp_id;
-	g_free(default_path);
 }
 
 static gboolean popover_cb(gpointer data)
@@ -2886,11 +2835,9 @@ static void config_tab_metadata(GtkWidget *notebook)
 	GtkWidget *ct_button;
 	GtkWidget *label;
 	GtkWidget *tmp_widget;
-	char *markup;
 	GtkWidget *text_label;
 
 	vbox = scrolled_notebook_page(notebook, _("Metadata"));
-
 
 	group = pref_group_new(vbox, FALSE, _("Metadata writing sequence"), GTK_ORIENTATION_VERTICAL);
 #if !HAVE_EXIV2
@@ -2904,12 +2851,14 @@ static void config_tab_metadata(GtkWidget *notebook)
 
 	ct_button = pref_checkbox_new_int(group, "", options->metadata.save_in_image_file, &c_options->metadata.save_in_image_file);
 	text_label = gtk_bin_get_child(GTK_BIN(ct_button));
-	markup = g_markup_printf_escaped ("<span weight=\"bold\">%s</span>%s", _("Step 1"), _(") Save metadata in either the image file or the sidecar file, according to the XMP standard"));
-	gtk_label_set_markup (GTK_LABEL(text_label), markup);
-	g_free(markup);
-	markup = g_markup_printf_escaped ("%s<span style=\"italic\">%s</span>%s<span style=\"italic\">%s</span>%s", _("The destination is dependent on the settings in the "), _("Writable"), _(" and "), _("Sidecar Is Allowed"), _(" columns of the File Filters tab)"));
-	gtk_widget_set_tooltip_markup(ct_button, markup);
-	g_free(markup);
+	g_autofree gchar *step1_markup = g_markup_printf_escaped("<span weight=\"bold\">%s</span>%s",
+	                                                         _("Step 1"), _(") Save metadata in either the image file or the sidecar file, according to the XMP standard"));
+	gtk_label_set_markup(GTK_LABEL(text_label), step1_markup);
+
+	g_autofree gchar *tooltip_markup = g_markup_printf_escaped("%s<span style=\"italic\">%s</span>%s<span style=\"italic\">%s</span>%s",
+	                                                           _("The destination is dependent on the settings in the "),
+	                                                           _("Writable"), _(" and "), _("Sidecar Is Allowed"), _(" columns of the File Filters tab)"));
+	gtk_widget_set_tooltip_markup(ct_button, tooltip_markup);
 
 #if !HAVE_EXIV2
 	gtk_widget_set_sensitive(ct_button, FALSE);
@@ -2917,14 +2866,14 @@ static void config_tab_metadata(GtkWidget *notebook)
 
 	tmp_widget = pref_checkbox_new_int(group, "", options->metadata.enable_metadata_dirs, &c_options->metadata.enable_metadata_dirs);
 	text_label = gtk_bin_get_child(GTK_BIN(tmp_widget));
-	markup = g_markup_printf_escaped ("<span weight=\"bold\">%s</span>%s<span style=\"italic\">%s</span>%s", _("Step 2"), _(") Save metadata in the folder "),".metadata,", _(" local to the image folder (non-standard)"));
-	gtk_label_set_markup (GTK_LABEL(text_label), markup);
-	g_free(markup);
+	g_autofree gchar *step2_markup = g_markup_printf_escaped("<span weight=\"bold\">%s</span>%s<span style=\"italic\">%s</span>%s",
+	                                                         _("Step 2"), _(") Save metadata in the folder "),".metadata,", _(" local to the image folder (non-standard)"));
+	gtk_label_set_markup(GTK_LABEL(text_label), step2_markup);
 
 	label = pref_label_new(group, "");
-	markup = g_markup_printf_escaped ("<span weight=\"bold\">%s</span>%s<span style=\"italic\">%s</span>%s", _("Step 3"), _(") Save metadata in Geeqie private directory "), get_metadata_cache_dir(), "/");
-	gtk_label_set_markup (GTK_LABEL(label), markup);
-	g_free(markup);
+	g_autofree gchar *step3_markup = g_markup_printf_escaped("<span weight=\"bold\">%s</span>%s<span style=\"italic\">%s</span>%s",
+	                                                         _("Step 3"), _(") Save metadata in Geeqie private directory "), get_metadata_cache_dir(), "/");
+	gtk_label_set_markup(GTK_LABEL(label), step3_markup);
 
 	gtk_label_set_xalign(GTK_LABEL(label), 0.0);
 	gtk_label_set_yalign(GTK_LABEL(label), 0.5);
@@ -2949,9 +2898,10 @@ static void config_tab_metadata(GtkWidget *notebook)
 	tmp_widget=	pref_checkbox_new_int(hbox, "", options->metadata.sidecar_extended_name, &c_options->metadata.sidecar_extended_name);
 	gtk_widget_set_tooltip_text(tmp_widget, _("This file naming convention is used by Darktable"));
 	text_label = gtk_bin_get_child(GTK_BIN(tmp_widget));
-	markup = g_markup_printf_escaped ("%s<span style=\"italic\">%s</span>%s<span style=\"italic\">%s</span>%s", _("Create sidecar files named "), "image.ext.xmp", _(" (as opposed to the normal "), "image.xmp", ")");
-	gtk_label_set_markup (GTK_LABEL(text_label), markup);
-	g_free(markup);
+
+	g_autofree gchar *markup = g_markup_printf_escaped("%s<span style=\"italic\">%s</span>%s<span style=\"italic\">%s</span>%s",
+	                                                   _("Create sidecar files named "), "image.ext.xmp", _(" (as opposed to the normal "), "image.xmp", ")");
+	gtk_label_set_markup(GTK_LABEL(text_label), markup);
 
 	pref_spacer(group, PREF_PAD_GROUP);
 
@@ -3101,7 +3051,6 @@ static gboolean keywords_find_file(gpointer data)
 	auto kfd = static_cast<KeywordFindData *>(data);
 	GtkTextIter iter;
 	GtkTextBuffer *buffer;
-	gchar *tmp;
 	GList *keywords;
 
 	if (kfd->list)
@@ -3117,9 +3066,8 @@ static gboolean keywords_find_file(gpointer data)
 		while (keywords)
 			{
 			gtk_text_buffer_get_end_iter(buffer, &iter);
-			tmp = g_strconcat(static_cast<const gchar *>(keywords->data), "\n", NULL);
+			g_autofree gchar *tmp = g_strconcat(static_cast<const gchar *>(keywords->data), "\n", NULL);
 			gtk_text_buffer_insert(buffer, &iter, tmp, -1);
-			g_free(tmp);
 			keywords = keywords->next;
 			}
 
@@ -3152,11 +3100,10 @@ static gboolean keywords_find_file(gpointer data)
 static void keywords_find_start_cb(GenericDialog *, gpointer data)
 {
 	auto kfd = static_cast<KeywordFindData *>(data);
-	gchar *path;
 
 	if (kfd->list || !gtk_widget_get_sensitive(kfd->button_start)) return;
 
-	path = remove_trailing_slash((gq_gtk_entry_get_text(GTK_ENTRY(kfd->entry))));
+	g_autofree gchar *path = remove_trailing_slash((gq_gtk_entry_get_text(GTK_ENTRY(kfd->entry))));
 	parse_out_relatives(path);
 
 	if (!isdir(path))
@@ -3180,8 +3127,6 @@ static void keywords_find_start_cb(GenericDialog *, gpointer data)
 		file_data_unref(dir_fd);
 		kfd->idle_id = g_idle_add(keywords_find_file, kfd);
 		}
-
-	g_free(path);
 }
 
 static void keywords_find_dialog(GtkWidget *widget, const gchar *path)
@@ -3255,13 +3200,12 @@ static void config_tab_keywords_save()
 	GtkTextIter end;
 	GtkTextBuffer *buffer;
 	GList *kw_list = nullptr;
-	gchar *buffer_text;
 	gchar *kw_split;
 
 	buffer = gtk_text_view_get_buffer(GTK_TEXT_VIEW(keyword_text));
 	gtk_text_buffer_get_bounds(buffer, &start, &end);
 
-	buffer_text = gtk_text_buffer_get_text(buffer, &start, &end, FALSE);
+	g_autofree gchar *buffer_text = gtk_text_buffer_get_text(buffer, &start, &end, FALSE);
 
 	kw_split = strtok(buffer_text, "\n");
 	while (kw_split != nullptr)
@@ -3276,7 +3220,6 @@ static void config_tab_keywords_save()
 	keyword_list_set(kw_list);
 
 	g_list_free_full(kw_list, g_free);
-	g_free(buffer_text);
 }
 
 static void config_tab_keywords(GtkWidget *notebook)
@@ -3288,7 +3231,6 @@ static void config_tab_keywords(GtkWidget *notebook)
 	GtkWidget *scrolled;
 	GtkTextIter iter;
 	GtkTextBuffer *buffer;
-	gchar *tmp;
 #if HAVE_SPELL
 	GspellTextView *gspell_view;
 #endif
@@ -3330,24 +3272,20 @@ static void config_tab_keywords(GtkWidget *notebook)
 	gtk_text_view_set_wrap_mode(GTK_TEXT_VIEW(keyword_text), GTK_WRAP_WORD);
 	gtk_text_buffer_get_start_iter(buffer, &iter);
 	gtk_text_buffer_create_mark(buffer, "end", &iter, FALSE);
-	gchar *path;
 
-	path = g_build_filename(get_rc_dir(), "keywords", NULL);
+	g_autofree gchar *path = g_build_filename(get_rc_dir(), "keywords", NULL);
 
 	GList *kwl = keyword_list_get();
 	kwl = g_list_first(kwl);
 	while (kwl)
 	{
 		gtk_text_buffer_get_end_iter (buffer, &iter);
-	    tmp = g_strconcat(static_cast<const gchar *>(kwl->data), "\n", NULL);
+		g_autofree gchar *tmp = g_strconcat(static_cast<const gchar *>(kwl->data), "\n", NULL);
 		gtk_text_buffer_insert(buffer, &iter, tmp, -1);
 		kwl = kwl->next;
-		g_free(tmp);
 	}
 
 	gtk_text_buffer_set_modified(buffer, FALSE);
-
-	g_free(path);
 }
 
 /* metadata tab */
@@ -3414,7 +3352,6 @@ static void config_tab_color(GtkWidget *notebook)
 	GtkWidget *group;
 	GtkWidget *tabcomp;
 	GtkWidget *table;
-	gint i;
 
 	vbox = scrolled_notebook_page(notebook, _("Color management"));
 
@@ -3435,14 +3372,12 @@ static void config_tab_color(GtkWidget *notebook)
 	label = pref_table_label(table, 2, 0, _("File"), GTK_ALIGN_START);
 	pref_label_bold(label, TRUE, FALSE);
 
-	for (i = 0; i < COLOR_PROFILE_INPUTS; i++)
+	for (gint i = 0; i < COLOR_PROFILE_INPUTS; i++)
 		{
 		GtkWidget *entry;
-		gchar *buf;
 
-		buf = g_strdup_printf(_("Input %d:"), i + COLOR_PROFILE_FILE);
+		g_autofree gchar *buf = g_strdup_printf(_("Input %d:"), i + COLOR_PROFILE_FILE);
 		pref_table_label(table, 0, i + 1, buf, GTK_ALIGN_END);
-		g_free(buf);
 
 		entry = gtk_entry_new();
 		gtk_entry_set_max_length(GTK_ENTRY(entry), EDITOR_NAME_MAX_LENGTH);
@@ -3699,25 +3634,13 @@ static void config_tab_behavior(GtkWidget *notebook)
 
 static gboolean accel_search_function_cb(GtkTreeModel *model, gint column, const gchar *key, GtkTreeIter *iter, gpointer)
 {
-	gboolean ret = TRUE;
-	gchar *key_nocase;
-	gchar *text;
-	gchar *text_nocase;
-
+	g_autofree gchar *text = nullptr;
 	gtk_tree_model_get(model, iter, column, &text, -1);
-	text_nocase = g_utf8_casefold(text, -1);
-	key_nocase = g_utf8_casefold(key, -1);
 
-	if (g_strstr_len(text_nocase, -1, key_nocase))
-		{
-		ret = FALSE;
-		}
+	g_autofree gchar *text_nocase = g_utf8_casefold(text, -1);
+	g_autofree gchar *key_nocase = g_utf8_casefold(key, -1);
 
-	g_free(key_nocase);
-	g_free(text);
-	g_free(text_nocase);
-
-	return ret;
+	return g_strstr_len(text_nocase, -1, key_nocase) == nullptr;
 }
 
 static void accel_row_activated_cb(GtkTreeView *tree_view, GtkTreePath *, GtkTreeViewColumn *column, gpointer)
@@ -3910,21 +3833,10 @@ static void config_tab_advanced(GtkWidget *notebook)
 
 	pref_spacer(group, PREF_PAD_GROUP);
 
-	GSList *formats_list = gdk_pixbuf_get_formats();
-	for (GSList *work = formats_list; work; work = work->next)
-		{
-		auto *fm = static_cast<GdkPixbufFormat *>(work->data);
-		g_auto(GStrv) extensions = gdk_pixbuf_format_get_extensions(fm);
-		const guint extensions_count = g_strv_length(extensions);
+	pixbuf_gdk_known_extensions(&extensions_list);
 
-		for (guint i = 0; i < extensions_count; i++)
-			{
-			extensions_list = g_list_insert_sorted(extensions_list, g_strdup(extensions[i]), reinterpret_cast<GCompareFunc>(g_strcmp0));
-			}
-		}
-	g_slist_free(formats_list);
+	 g_autoptr(GString) types_string = g_string_new(nullptr);
 
-	g_autoptr(GString) types_string = g_string_new(nullptr);
 	for (GList *work = extensions_list; work; work = work->next)
 		{
 		if (types_string->len > 0)
@@ -4181,13 +4093,9 @@ void show_about_window(LayoutWindow *lw)
 	GDataInputStream *data_stream;
 	GInputStream *in_stream_authors;
 	GInputStream *in_stream_translators;
-	GString *copyright;
 	ZoneDetect *cd;
 	gchar *author_line;
 	gchar *authors[1000];
-	gchar *comment;
-	gchar *timezone_path;
-	gchar *translators;
 	gint i_authors = 0;
 	gint n = 0;
 	gsize bytes_read;
@@ -4195,9 +4103,9 @@ void show_about_window(LayoutWindow *lw)
 	gsize size;
 	guint32 flags;
 
-	copyright = g_string_new(_("This program comes with absolutely no warranty.\nGNU General Public License, version 2 or later.\nSee https://www.gnu.org/licenses/old-licenses/gpl-2.0.html\n\n"));
+	g_autoptr(GString) copyright = g_string_new(_("This program comes with absolutely no warranty.\nGNU General Public License, version 2 or later.\nSee https://www.gnu.org/licenses/old-licenses/gpl-2.0.html\n\n"));
 
-	timezone_path = g_build_filename(get_rc_dir(), TIMEZONE_DATABASE_FILE, NULL);
+	g_autofree gchar *timezone_path = g_build_filename(get_rc_dir(), TIMEZONE_DATABASE_FILE, NULL);
 	if (g_file_test(timezone_path, G_FILE_TEST_EXISTS))
 		{
 		cd = ZDOpenDatabase(timezone_path);
@@ -4211,7 +4119,6 @@ void show_about_window(LayoutWindow *lw)
 			}
 		ZDCloseDatabase(cd);
 		}
-	g_free(timezone_path);
 
 	copyright = g_string_append(copyright, _("\n\nSome icons by https://www.flaticon.com"));
 
@@ -4222,9 +4129,8 @@ void show_about_window(LayoutWindow *lw)
 	authors[0] = nullptr;
 	while ((author_line = g_data_input_stream_read_line(G_DATA_INPUT_STREAM(data_stream), &length, nullptr, nullptr)))
 		{
-		authors[i_authors] = g_strdup(author_line);
+		authors[i_authors] = author_line;
 		i_authors++;
-		g_free(author_line);
 		}
 	authors[i_authors] = nullptr;
 
@@ -4235,11 +4141,12 @@ void show_about_window(LayoutWindow *lw)
 	g_resources_get_info(translators_path, G_RESOURCE_LOOKUP_FLAGS_NONE, &size, &flags, nullptr);
 
 	in_stream_translators = g_resources_open_stream(translators_path, G_RESOURCE_LOOKUP_FLAGS_NONE, nullptr);
-	translators = static_cast<gchar *>(g_malloc0(size));
+	g_autofree auto *translators = static_cast<gchar *>(g_malloc0(size));
 	g_input_stream_read_all(in_stream_translators, translators, size, &bytes_read, nullptr, nullptr);
 	g_input_stream_close(in_stream_translators, nullptr, nullptr);
 
-	comment = g_strconcat(_("Project created by John Ellis\nGQview 1998\nGeeqie 2007\n\n\nDevelopment and bug reports:\n"), GQ_EMAIL_ADDRESS, _("\nhttps://github.com/BestImageViewer/geeqie/issues"), NULL);
+	g_autofree gchar *comment = g_strconcat(_("Project created by John Ellis\nGQview 1998\nGeeqie 2007\n\n\nDevelopment and bug reports:\n"),
+	                                        GQ_EMAIL_ADDRESS, _("\nhttps://github.com/BestImageViewer/geeqie/issues"), NULL);
 
 	const gchar *artists[2] = {
 	    "Néstor Díaz Valencia <nestor@estudionexos.com>",
@@ -4263,16 +4170,12 @@ void show_about_window(LayoutWindow *lw)
 	                      "license", copyright->str,
 	                      NULL);
 
-	g_string_free(copyright, TRUE);
-
 	while(n < i_authors)
 		{
 		g_free(authors[n]);
 		n++;
 		}
 
-	g_free(comment);
-	g_free(translators);
 	g_object_unref(data_stream);
 	g_object_unref(in_stream_authors);
 	g_object_unref(in_stream_translators);
@@ -4298,11 +4201,7 @@ static void image_overlay_set_text_colors()
 
 static void timezone_async_ready_cb(GObject *source_object, GAsyncResult *res, gpointer data)
 {
-	GError *error = nullptr;
 	auto tz = static_cast<TZData *>(data);
-	gchar *tmp_filename;
-	gchar *timezone_bin;
-	gchar *tmp_dir = nullptr;
 	FileData *fd;
 
 	if (!g_cancellable_is_cancelled(tz->cancellable))
@@ -4310,16 +4209,16 @@ static void timezone_async_ready_cb(GObject *source_object, GAsyncResult *res, g
 		generic_dialog_close(tz->gd);
 		}
 
-
+	g_autoptr(GError) error = nullptr;
 	if (g_file_copy_finish(G_FILE(source_object), res, &error))
 		{
-		tmp_filename = g_file_get_path(tz->tmp_g_file);
+		g_autofree gchar *tmp_filename = g_file_get_path(tz->tmp_g_file);
 		fd = file_data_new_simple(tmp_filename);
-		tmp_dir = open_archive(fd);
 
+		g_autofree gchar *tmp_dir = open_archive(fd);
 		if (tmp_dir)
 			{
-			timezone_bin = g_build_filename(tmp_dir, TIMEZONE_DATABASE_VERSION, TIMEZONE_DATABASE_FILE, NULL);
+			g_autofree gchar *timezone_bin = g_build_filename(tmp_dir, TIMEZONE_DATABASE_VERSION, TIMEZONE_DATABASE_FILE, NULL);
 			if (isfile(timezone_bin))
 				{
 				move_file(timezone_bin, tz->timezone_database_user);
@@ -4329,14 +4228,12 @@ static void timezone_async_ready_cb(GObject *source_object, GAsyncResult *res, g
 				warning_dialog(_("Warning: Cannot open timezone database file"), _("See the Log Window"), GQ_ICON_DIALOG_WARNING, nullptr);
 				}
 
-			g_free(timezone_bin);
-			g_free(tmp_dir); // The folder in /tmp is deleted in exit_program_final()
+			// The folder in /tmp is deleted in exit_program_final()
 			}
 		else
 			{
 			warning_dialog(_("Warning: Cannot open timezone database file"), _("See the Log Window"), GQ_ICON_DIALOG_WARNING, nullptr);
 			}
-		g_free(tmp_filename);
 		file_data_unref(fd);
 		}
 	else
@@ -4344,7 +4241,7 @@ static void timezone_async_ready_cb(GObject *source_object, GAsyncResult *res, g
 		file_util_warning_dialog(_("Error: Timezone database download failed"), error->message, GQ_ICON_DIALOG_ERROR, nullptr);
 		}
 
-	g_file_delete(tz->tmp_g_file, nullptr, &error);
+	g_file_delete(tz->tmp_g_file, nullptr, nullptr);
 	g_object_unref(tz->tmp_g_file);
 	tz->tmp_g_file = nullptr;
 	g_object_unref(tz->cancellable);
@@ -4371,7 +4268,6 @@ static void timezone_cancel_button_cb(GenericDialog *, gpointer data)
 static void timezone_database_install_cb(GtkWidget *widget, gpointer data)
 {
 	auto tz = static_cast<TZData *>(data);
-	GError *error = nullptr;
 	GFileIOStream *io_stream;
 
 	if (tz->tmp_g_file)
@@ -4379,13 +4275,13 @@ static void timezone_database_install_cb(GtkWidget *widget, gpointer data)
 		return;
 		}
 
+	g_autoptr(GError) error = nullptr;
 	tz->tmp_g_file = g_file_new_tmp("geeqie_timezone_XXXXXX", &io_stream, &error);
 
 	if (error)
 		{
 		file_util_warning_dialog(_("Timezone database download failed"), error->message, GQ_ICON_DIALOG_ERROR, nullptr);
 		log_printf("Error: Download timezone database failed:\n%s", error->message);
-		g_error_free(error);
 		g_object_unref(tz->tmp_g_file);
 		}
 	else

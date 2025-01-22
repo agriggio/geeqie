@@ -34,7 +34,6 @@
 #include <config.h>
 
 #include "compat.h"
-#include "debug.h"
 #include "history-list.h"
 #include "layout.h"
 #include "main-defines.h"
@@ -844,8 +843,8 @@ static void date_selection_popup(DateSelection *ds)
 		{
 		y = wy + button_allocation.y - window_allocation.height;
 		}
-	if (x < 0) x = 0;
-	if (y < 0) y = 0;
+	x = std::max(x, 0);
+	y = std::max(y, 0);
 
 	gq_gtk_window_move(GTK_WINDOW(ds->window), x, y);
 	gtk_widget_show(ds->window);
@@ -1052,9 +1051,7 @@ static GList *pref_list_find(const gchar *group, const gchar *token)
 
 static gboolean pref_list_get(const gchar *group, const gchar *key, const gchar *marker, const gchar **result)
 {
-	gchar *token;
 	GList *work;
-	gboolean ret;
 
 	if (!group || !key || !marker)
 		{
@@ -1062,36 +1059,28 @@ static gboolean pref_list_get(const gchar *group, const gchar *key, const gchar 
 		return FALSE;
 		}
 
-	token = g_strconcat(key, marker, NULL);
+	g_autofree gchar *token = g_strconcat(key, marker, NULL);
 
 	work = pref_list_find(group, token);
-	if (work)
-		{
-		*result = static_cast<const gchar *>(work->data) + strlen(token);
-		if (*result[0] == '\0') *result = nullptr;
-		ret = TRUE;
-		}
-	else
+	if (!work)
 		{
 		*result = nullptr;
-		ret = FALSE;
+		return FALSE;
 		}
 
-	g_free(token);
-
-	return ret;
+	*result = static_cast<const gchar *>(work->data) + strlen(token);
+	if (*result[0] == '\0') *result = nullptr;
+	return TRUE;
 }
 
 static void pref_list_set(const gchar *group, const gchar *key, const gchar *marker, const gchar *text)
 {
-	gchar *token;
-	gchar *path;
 	GList *work;
 
 	if (!group || !key || !marker) return;
 
-	token = g_strconcat(key, marker, NULL);
-	path = g_strconcat(token, text, NULL);
+	g_autofree gchar *token = g_strconcat(key, marker, NULL);
+	g_autofree gchar *path = g_strconcat(token, text, NULL);
 
 	work = pref_list_find(group, token);
 	if (work)
@@ -1100,8 +1089,7 @@ static void pref_list_set(const gchar *group, const gchar *key, const gchar *mar
 
 		if (text)
 			{
-			work->data = path;
-			path = nullptr;
+			work->data = g_steal_pointer(&path);
 
 			g_free(old_path);
 			}
@@ -1114,9 +1102,6 @@ static void pref_list_set(const gchar *group, const gchar *key, const gchar *mar
 		{
 		history_list_add_to_key(group, path, 0);
 		}
-
-	g_free(path);
-	g_free(token);
 }
 
 void pref_list_int_set(const gchar *group, const gchar *key, gint value)
@@ -1335,7 +1320,7 @@ static gchar *get_action_label(GtkAction *action, const gchar *action_name)
  * @param
  * @returns std::vector<ActionItem>
  *
- * The list generated is used in the --remote --action-list command and
+ * The list generated is used in the --action-list command and
  * programmable mouse buttons 8 and 9.
  */
 std::vector<ActionItem> get_action_items()

@@ -29,7 +29,6 @@
 
 #include "bar.h"
 #include "compat.h"
-#include "debug.h"
 #include "filedata.h"
 #include "intl.h"
 #include "metadata.h"
@@ -96,7 +95,7 @@ static void bar_pane_rating_notify_cb(FileData *fd, NotifyType type, gpointer da
 {
 	auto prd = static_cast<PaneRatingData *>(data);
 
-	if ((type & (NOTIFY_REREAD | NOTIFY_CHANGE | NOTIFY_HISTMAP | NOTIFY_PIXBUF)) && fd == prd->fd)
+	if ((type & (NOTIFY_REREAD | NOTIFY_CHANGE | NOTIFY_HISTMAP | NOTIFY_METADATA | NOTIFY_PIXBUF)) && fd == prd->fd)
 		{
 		DEBUG_1("Notify pane_rating: %s %04x", fd->path, type);
 		bar_pane_rating_update(prd);
@@ -119,10 +118,10 @@ static void bar_pane_rating_selected_cb(GtkCheckButton *checkbutton, gpointer da
 
 #if HAVE_GTK4
 	const gchar *rating_label;
-	gchar *rating;
 
 	rating_label = gtk_check_button_get_label(checkbutton);
 
+	g_autofree gchar *rating = nullptr;
 	if (g_strcmp0(rating_label, "Rejected") == 0)
 		{
 		rating = g_strdup("-1");
@@ -137,8 +136,6 @@ static void bar_pane_rating_selected_cb(GtkCheckButton *checkbutton, gpointer da
 		}
 
 	metadata_write_string(prd->fd, RATING_KEY, rating);
-
-	g_free(rating);
 #else
 	if (gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(checkbutton)))
 		{
@@ -229,10 +226,9 @@ static GtkWidget *bar_pane_rating_new(const gchar *id, const gchar *title, gbool
 
 GtkWidget *bar_pane_rating_new_from_config(const gchar **attribute_names, const gchar **attribute_values)
 {
-	gchar *title = nullptr;
-	gchar *id = g_strdup("rating");
+	g_autofree gchar *id = g_strdup("rating");
+	g_autofree gchar *title = nullptr;
 	gboolean expanded = TRUE;
-	GtkWidget *ret;
 
 	while (*attribute_names)
 		{
@@ -243,15 +239,12 @@ GtkWidget *bar_pane_rating_new_from_config(const gchar **attribute_names, const 
 		if (READ_CHAR_FULL("title", title)) continue;
 		if (READ_BOOL_FULL("expanded", expanded)) continue;
 
-		log_printf("unknown attribute %s = %s\n", option, value);
+		config_file_error((std::string("Unknown attribute: ") + option + " = " + value).c_str());
 		}
 
 	bar_pane_translate_title(PANE_RATING, id, &title);
-	ret = bar_pane_rating_new(id, title, expanded);
 
-	g_free(title);
-	g_free(id);
-	return ret;
+	return bar_pane_rating_new(id, title, expanded);
 }
 
 void bar_pane_rating_update_from_config(GtkWidget *pane, const gchar **attribute_names, const gchar **attribute_values)
@@ -271,7 +264,7 @@ void bar_pane_rating_update_from_config(GtkWidget *pane, const gchar **attribute
 		if (READ_CHAR(prd->pane, id)) continue;
 		if (READ_BOOL(prd->pane, expanded)) continue;
 
-		log_printf("unknown attribute %s = %s\n", option, value);
+		config_file_error((std::string("Unknown attribute: ") + option + " = " + value).c_str());
 		}
 
 	bar_update_expander(pane);

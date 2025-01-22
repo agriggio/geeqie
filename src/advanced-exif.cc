@@ -33,7 +33,6 @@
 #include <config.h>
 
 #include "compat.h"
-#include "debug.h"
 #include "dnd.h"
 #include "exif.h"
 #include "filedata.h"
@@ -61,10 +60,7 @@ namespace
 
 struct ExifWin
 {
-	GtkWidget *button_close;
-	GtkWidget *button_help;
 	GtkWidget *window;
-	GtkWidget *vbox;
 	GtkWidget *scrolled;
 	GtkWidget *listview;
 	GtkWidget *label_file_name;
@@ -130,22 +126,13 @@ static void advanced_exif_update(ExifWin *ew)
 	item = exif_get_first_item(exif_original);
 	while (item)
 		{
-		gchar *tag;
-		gchar *tag_name;
-		gchar *text;
-		gchar *utf8_text;
-		const gchar *format;
-		gint elements;
-		gchar *description;
-
-		tag = g_strdup_printf("0x%04x", exif_item_get_tag_id(item));
-		tag_name = exif_item_get_tag_name(item);
-		format = exif_item_get_format_name(item, TRUE);
-		text = exif_item_get_data_as_text(item, exif);
-		utf8_text = utf8_validate_or_convert(text);
-		g_free(text);
-		elements = exif_item_get_elements(item);
-		description = exif_item_get_description(item);
+		g_autofree gchar *tag = g_strdup_printf("0x%04x", exif_item_get_tag_id(item));
+		g_autofree gchar *tag_name = exif_item_get_tag_name(item);
+		g_autofree gchar *text = exif_item_get_data_as_text(item, exif);
+		g_autofree gchar *utf8_text = utf8_validate_or_convert(text);
+		const gchar *format = exif_item_get_format_name(item, TRUE);
+		const gint elements = exif_item_get_elements(item);
+		g_autofree gchar *description = exif_item_get_description(item);
 		if (!description || *description == '\0')
 			{
 			g_free(description);
@@ -162,10 +149,6 @@ static void advanced_exif_update(ExifWin *ew)
 		                   EXIF_ADVCOL_ELEMENTS, std::to_string(elements).c_str(),
 		                   EXIF_ADVCOL_DESCRIPTION, description,
 		                   -1);
-		g_free(tag);
-		g_free(utf8_text);
-		g_free(description);
-		g_free(tag_name);
 		item = exif_get_next_item(exif_original);
 		}
 	exif_free_fd(ew->fd, exif);
@@ -205,16 +188,14 @@ static void advanced_exif_dnd_get(GtkWidget *listview, GdkDragContext *,
 	GtkTreeSelection *sel = gtk_tree_view_get_selection(GTK_TREE_VIEW(listview));
 	GtkTreeIter iter;
 
-	if (gtk_tree_selection_get_selected(sel, nullptr, &iter))
-		{
-		GtkTreeModel *store = gtk_tree_view_get_model(GTK_TREE_VIEW(listview));
-		gchar *key;
+	if (!gtk_tree_selection_get_selected(sel, nullptr, &iter)) return;
 
-		gtk_tree_model_get(store, &iter, EXIF_ADVCOL_NAME, &key, -1);
-		gtk_selection_data_set_text(selection_data, key, -1);
-		g_free(key);
-		}
+	GtkTreeModel *store = gtk_tree_view_get_model(GTK_TREE_VIEW(listview));
 
+	g_autofree gchar *key = nullptr;
+	gtk_tree_model_get(store, &iter, EXIF_ADVCOL_NAME, &key, -1);
+
+	gtk_selection_data_set_text(selection_data, key, -1);
 }
 
 
@@ -223,16 +204,14 @@ static void advanced_exif_dnd_begin(GtkWidget *listview, GdkDragContext *context
 	GtkTreeSelection *sel = gtk_tree_view_get_selection(GTK_TREE_VIEW(listview));
 	GtkTreeIter iter;
 
-	if (gtk_tree_selection_get_selected(sel, nullptr, &iter))
-		{
-		GtkTreeModel *store = gtk_tree_view_get_model(GTK_TREE_VIEW(listview));
-		gchar *key;
+	if (!gtk_tree_selection_get_selected(sel, nullptr, &iter)) return;
 
-		gtk_tree_model_get(store, &iter, EXIF_ADVCOL_NAME, &key, -1);
+	GtkTreeModel *store = gtk_tree_view_get_model(GTK_TREE_VIEW(listview));
 
-		dnd_set_drag_label(listview, context, key);
-		g_free(key);
-		}
+	g_autofree gchar *key = nullptr;
+	gtk_tree_model_get(store, &iter, EXIF_ADVCOL_NAME, &key, -1);
+
+	dnd_set_drag_label(listview, context, key);
 }
 
 
@@ -326,7 +305,6 @@ static gboolean advanced_exif_mouseclick(GtkWidget *, GdkEventButton *, gpointer
 	GtkTreeViewColumn *column;
 	GtkTreeIter iter;
 	GtkTreeModel *store;
-	gchar *value;
 	GList *cols;
 	gint col_num;
 	GtkClipboard *clipboard;
@@ -339,13 +317,14 @@ static gboolean advanced_exif_mouseclick(GtkWidget *, GdkEventButton *, gpointer
 
 		cols = gtk_tree_view_get_columns(GTK_TREE_VIEW(ew->listview));
 		col_num = g_list_index(cols, column);
+
+		g_autofree gchar *value = nullptr;
 		gtk_tree_model_get(store, &iter, display_order[col_num], &value, -1);
 
 		clipboard = gtk_clipboard_get(GDK_SELECTION_PRIMARY);
 		gtk_clipboard_set_text(clipboard, value, -1);
 
 		g_list_free(cols);
-		g_free(value);
 
 		gtk_tree_view_set_search_column(GTK_TREE_VIEW(ew->listview), gtk_tree_view_column_get_sort_column_id(column));
 		}
@@ -382,26 +361,13 @@ static gboolean advanced_exif_keypress(GtkWidget *, GdkEventKey *event, gpointer
 
 static gboolean search_function_cb(GtkTreeModel *model, gint column, const gchar *key, GtkTreeIter *iter, gpointer)
 {
-	gboolean ret = TRUE;
-	gchar *field_contents;
-	gchar *field_contents_nocase;
-	gchar *key_nocase;
-
+	g_autofree gchar *field_contents = nullptr;
 	gtk_tree_model_get(model, iter, column, &field_contents, -1);
 
-	field_contents_nocase = g_utf8_casefold(field_contents, -1);
-	key_nocase = g_utf8_casefold(key, -1);
+	g_autofree gchar *field_contents_nocase = g_utf8_casefold(field_contents, -1);
+	g_autofree gchar *key_nocase = g_utf8_casefold(key, -1);
 
-	if (g_strstr_len(field_contents_nocase, -1, key_nocase))
-		{
-		ret = FALSE;
-		}
-
-	g_free(field_contents);
-	g_free(field_contents_nocase);
-	g_free(key_nocase);
-
-	return ret;
+	return g_strstr_len(field_contents_nocase, -1, key_nocase) == nullptr;
 }
 
 static void exif_window_help_cb(GtkWidget *, gpointer)
@@ -451,9 +417,9 @@ GtkWidget *advanced_exif_new(LayoutWindow *lw)
 	g_object_set_data(G_OBJECT(ew->window), "advanced_exif_data", ew);
 	g_signal_connect(G_OBJECT(ew->window), "delete_event", G_CALLBACK(advanced_exif_delete_cb), ew);
 
-	ew->vbox = gtk_box_new(GTK_ORIENTATION_VERTICAL, PREF_PAD_GAP);
-	gq_gtk_container_add(GTK_WIDGET(ew->window), ew->vbox);
-	gtk_widget_show(ew->vbox);
+	GtkWidget *vbox = gtk_box_new(GTK_ORIENTATION_VERTICAL, PREF_PAD_GAP);
+	gq_gtk_container_add(ew->window, vbox);
+	gtk_widget_show(vbox);
 
 	box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
 
@@ -466,7 +432,7 @@ GtkWidget *advanced_exif_new(LayoutWindow *lw)
 	gq_gtk_box_pack_start(GTK_BOX(box), ew->label_file_name, TRUE, TRUE, 0);
 	gtk_widget_show(ew->label_file_name);
 
-	gq_gtk_box_pack_start(GTK_BOX(ew->vbox), box, FALSE, FALSE, 0);
+	gq_gtk_box_pack_start(GTK_BOX(vbox), box, FALSE, FALSE, 0);
 	gtk_widget_show(box);
 
 
@@ -520,25 +486,25 @@ GtkWidget *advanced_exif_new(LayoutWindow *lw)
 	gq_gtk_scrolled_window_set_shadow_type(GTK_SCROLLED_WINDOW(ew->scrolled), GTK_SHADOW_IN);
 	gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(ew->scrolled),
 				       GTK_POLICY_AUTOMATIC, GTK_POLICY_ALWAYS);
-	gq_gtk_box_pack_start(GTK_BOX(ew->vbox), ew->scrolled, TRUE, TRUE, 0);
+	gq_gtk_box_pack_start(GTK_BOX(vbox), ew->scrolled, TRUE, TRUE, 0);
 	gq_gtk_container_add(GTK_WIDGET(ew->scrolled), ew->listview);
 	gtk_widget_show(ew->listview);
 	gtk_widget_show(ew->scrolled);
 
 	button_box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
-	gq_gtk_box_pack_end(GTK_BOX(ew->vbox), button_box, FALSE, FALSE, 0);
+	gq_gtk_box_pack_end(GTK_BOX(vbox), button_box, FALSE, FALSE, 0);
 
 	hbox = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
 	gtk_box_set_spacing(GTK_BOX(hbox), PREF_PAD_SPACE);
 	gq_gtk_box_pack_end(GTK_BOX(button_box), hbox, FALSE, FALSE, 0);
 
-	ew->button_help = pref_button_new(hbox, GQ_ICON_HELP, _("Help"), G_CALLBACK(exif_window_help_cb), ew);
-	gtk_widget_set_tooltip_text(GTK_WIDGET(ew->button_help), "F1");
-	gtk_widget_set_sensitive(ew->button_help, TRUE);
+	GtkWidget *button_help = pref_button_new(hbox, GQ_ICON_HELP, _("Help"), G_CALLBACK(exif_window_help_cb), ew);
+	gtk_widget_set_tooltip_text(button_help, "F1");
+	gtk_widget_set_sensitive(button_help, TRUE);
 
-	ew->button_close = pref_button_new(hbox, GQ_ICON_CLOSE, _("Close"), G_CALLBACK(exif_window_close_cb), ew);
-	gtk_widget_set_tooltip_text(GTK_WIDGET(ew->button_close), _("Ctrl-W"));
-	gtk_widget_set_sensitive(ew->button_close, TRUE);
+	GtkWidget *button_close = pref_button_new(hbox, GQ_ICON_CLOSE, _("Close"), G_CALLBACK(exif_window_close_cb), ew);
+	gtk_widget_set_tooltip_text(button_close, _("Ctrl-W"));
+	gtk_widget_set_sensitive(button_close, TRUE);
 
 	gq_gtk_widget_show_all(button_box);
 

@@ -21,6 +21,7 @@
 
 #include "view-file-icon.h"
 
+#include <algorithm>
 #include <cstring>
 #include <utility>
 
@@ -29,7 +30,6 @@
 #include "cellrenderericon.h"
 #include "collect.h"
 #include "compat.h"
-#include "debug.h"
 #include "dnd.h"
 #include "filedata.h"
 #include "intl.h"
@@ -181,7 +181,7 @@ static gint vficon_get_icon_width(ViewFile *vf)
 	if (!VFICON(vf)->show_text && !vf->marks_enabled ) return options->thumbnails.max_width;
 
 	width = options->thumbnails.max_width + options->thumbnails.max_width / 2;
-	if (width < THUMB_MIN_ICON_WIDTH) width = THUMB_MIN_ICON_WIDTH;
+	width = std::max(width, THUMB_MIN_ICON_WIDTH);
 	if (width > THUMB_MAX_ICON_WIDTH) width = options->thumbnails.max_width;
 	if (vf->marks_enabled && width < THUMB_MIN_ICON_WIDTH_WITH_MARKS) width = THUMB_MIN_ICON_WIDTH_WITH_MARKS;
 
@@ -889,8 +889,7 @@ static void vficon_move_focus(ViewFile *vf, gint row, gint col, gboolean relativ
 		new_col = VFICON(vf)->focus_column;
 
 		new_row += row;
-		if (new_row < 0) new_row = 0;
-		if (new_row >= VFICON(vf)->rows) new_row = VFICON(vf)->rows - 1;
+		new_row = CLAMP(new_row, 0, VFICON(vf)->rows - 1);
 
 		while (col != 0)
 			{
@@ -1033,7 +1032,7 @@ static gint page_height(ViewFile *vf)
 	if (VFICON(vf)->show_text) row_height += options->thumbnails.max_height / 3;
 
 	ret = page_size / row_height;
-	if (ret < 1) ret = 1;
+	ret = std::max(ret, 1);
 
 	return ret;
 }
@@ -1512,7 +1511,7 @@ static void vficon_populate_at_new_size(ViewFile *vf, gint w, gint, gboolean for
 	thumb_width = vficon_get_icon_width(vf);
 
 	new_cols = w / (thumb_width + (THUMB_BORDER_PADDING * 6));
-	if (new_cols < 1) new_cols = 1;
+	new_cols = std::max(new_cols, 1);
 
 	if (!force && new_cols == VFICON(vf)->columns) return;
 
@@ -1926,7 +1925,7 @@ static void vficon_cell_data_cb(GtkTreeViewColumn *, GtkCellRenderer *cell,
 
 		g_assert(fd->magick == FD_MAGICK);
 
-		GString *name_sidecars = g_string_new(nullptr);
+		g_autoptr(GString) name_sidecars = g_string_new(nullptr);
 
 		if (VFICON(vf)->show_text)
 			{
@@ -1939,9 +1938,8 @@ static void vficon_cell_data_cb(GtkTreeViewColumn *, GtkCellRenderer *cell,
 
 			if (fd->sidecar_files)
 				{
-				gchar *sidecars = file_data_sc_list_to_string(fd);
+				g_autofree gchar *sidecars = file_data_sc_list_to_string(fd);
 				g_string_append_printf(name_sidecars, " %s", sidecars);
-				g_free(sidecars);
 				}
 			else if (fd->disable_grouping)
 				{
@@ -1956,9 +1954,8 @@ static void vficon_cell_data_cb(GtkTreeViewColumn *, GtkCellRenderer *cell,
 				name_sidecars = g_string_append_c(name_sidecars, '\n');
 				}
 
-			gchar *star_rating = (fd->rating != STAR_RATING_NOT_READ) ? convert_rating_to_stars(fd->rating) : nullptr;
+			g_autofree gchar *star_rating = (fd->rating != STAR_RATING_NOT_READ) ? convert_rating_to_stars(fd->rating) : nullptr;
 			name_sidecars = g_string_append(name_sidecars, star_rating);
-			g_free(star_rating);
 			}
 
 		GtkStyle *style = gtk_widget_get_style(vf->listview);
@@ -1985,7 +1982,6 @@ static void vficon_cell_data_cb(GtkTreeViewColumn *, GtkCellRenderer *cell,
 		             "foreground-set", TRUE,
 		             "has-focus", VFICON(vf)->focus_fd == fd,
 		             NULL);
-		g_string_free(name_sidecars, TRUE);
 		}
 	else
 		{

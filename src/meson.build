@@ -47,6 +47,8 @@ main_sources = files('advanced-exif.cc',
 'collect-table.h',
 'color-man.cc',
 'color-man.h',
+'command-line-handling.cc',
+'command-line-handling.h',
 'compat.cc',
 'compat.h',
 'debug.cc',
@@ -138,8 +140,6 @@ main_sources = files('advanced-exif.cc',
 'print.h',
 'rcfile.cc',
 'rcfile.h',
-'remote.cc',
-'remote.h',
 'renderer-tiles.cc',
 'renderer-tiles.h',
 'search-and-run.cc',
@@ -230,6 +230,20 @@ if conf_data.get('HAVE_FFMPEGTHUMBNAILER', 0) == 1
     )
 endif
 
+if conf_data.get('HAVE_EXR', 0) == 1
+    main_sources += files(
+        'image-load-exr.cc',
+        'image-load-exr.h',
+    )
+endif
+
+if conf_data.get('HAVE_FITS', 0) == 1
+    main_sources += files(
+        'image-load-fits.cc',
+        'image-load-fits.h',
+    )
+endif
+
 if conf_data.get('HAVE_HEIF', 0) == 1
     main_sources += files(
         'image-load-heif.cc',
@@ -276,6 +290,13 @@ if conf_data.get('HAVE_LUA', 0) == 1
     main_sources += files(
         'glua.h',
         'lua.cc',
+    )
+endif
+
+if conf_data.get('HAVE_NPY', 0) == 1
+    main_sources += files(
+        'image-load-npy.cc',
+        'image-load-npy.h',
     )
 endif
 
@@ -350,8 +371,11 @@ clutter_dep,
 clutter_gtk_dep,
 ddjvuapi_dep,
 exiv2_dep,
+exr_dep,
+fits_dep,
 glib_dep,
 gspell_dep,
+imath_dep,
 lcms_dep,
 libarchive_dep,
 libdw_dep,

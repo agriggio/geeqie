@@ -23,6 +23,7 @@
 #define CACHE_MAINT_H
 
 #include <glib.h>
+#include <gtk/gtk.h>
 
 #include "typedefs.h"
 
@@ -31,10 +32,12 @@ class FileData;
 void cache_notify_cb(FileData *fd, NotifyType type, gpointer data);
 void cache_manager_show();
 
-void cache_maintain_home_remote(gboolean metadata, gboolean clear, GDestroyNotify func);
+void cache_maintain_home_remote(GtkApplication *app, gboolean metadata, gboolean clear, GDestroyNotify func);
 void cache_manager_standard_process_remote(gboolean clear);
-void cache_manager_render_remote(const gchar *path, gboolean recurse, gboolean local, GSourceFunc destroy_func);
-void cache_maintenance(const gchar *path);
+void cache_manager_render_remote(GtkApplication *app, const gchar *path, gboolean recurse, gboolean local, GSourceFunc destroy_func);
+void cache_maintenance(GtkApplication *app, const gchar *path);
+
+void cache_maintenance_notification(GtkApplication *app, const gchar *message, gboolean show_quit_button);
 
 #endif
 /* vim: set shiftwidth=8 softtabstop=0 cindent cinoptions={1s: */

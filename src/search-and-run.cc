@@ -21,6 +21,7 @@
 #include "search-and-run.h"
 
 #include <cstddef>
+#include <utility>
 
 #include <gdk/gdk.h>
 #include <glib-object.h>
@@ -28,7 +29,6 @@
 #include <pango/pango.h>
 
 #include "compat.h"
-#include "debug.h"
 #include "layout.h"
 #include "main-defines.h"
 #include "misc.h"
@@ -63,12 +63,6 @@ static void command_store_populate(SarData* sar)
 	GtkAccelKey key;
 	GtkTreeIter iter;
 	GtkTreeSortable *sortable;
-	gchar *label;
-	gchar *tooltip;
-	gchar *label2;
-	gchar *tooltip2;
-	GString *new_command;
-	gchar *existing_command;
 	gboolean iter_found;
 	gboolean duplicate_command;
 
@@ -88,28 +82,30 @@ static void command_store_populate(SarData* sar)
 			accel_path = gq_gtk_action_get_accel_path(action);
 			if (accel_path && gtk_accel_map_lookup_entry(accel_path, &key))
 				{
+				g_autofree gchar *label = nullptr;
+				g_autofree gchar *tooltip = nullptr;
 				g_object_get(action, "tooltip", &tooltip, "label", &label, NULL);
 
 				/* menu items with no tooltip are placeholders */
 				if (g_strrstr(accel_path, ".desktop") != nullptr || tooltip != nullptr)
 					{
+					g_autofree gchar *label2 = nullptr;
 					if (pango_parse_markup(label, -1, '_', nullptr, &label2, nullptr, nullptr) && label2)
 						{
-						g_free(label);
-						label = label2;
+						std::swap(label, label2);
 						}
 					if (tooltip)
 						{
-						if (pango_parse_markup(tooltip, -1, '_', nullptr, &tooltip2, nullptr, nullptr) && label2)
+						g_autofree gchar *tooltip2 = nullptr;
+						if (pango_parse_markup(tooltip, -1, '_', nullptr, &tooltip2, nullptr, nullptr) && tooltip2)
 							{
-							g_free(tooltip);
-							tooltip = tooltip2;
+							std::swap(tooltip, tooltip2);
 							}
 						}
 
 					g_autofree gchar *accel = gtk_accelerator_get_label(key.accel_key, key.accel_mods);
 
-					new_command = g_string_new(nullptr);
+					g_autoptr(GString) new_command = g_string_new(nullptr);
 					if (!tooltip || g_strcmp0(label, tooltip) == 0)
 						{
 						g_string_append_printf(new_command, "%s : <b>%s</b>",label, accel);
@@ -124,18 +120,17 @@ static void command_store_populate(SarData* sar)
 
 					while (iter_found)
 						{
+						g_autofree gchar *existing_command = nullptr;
 						gtk_tree_model_get(GTK_TREE_MODEL(sar->command_store), &iter, SAR_LABEL, &existing_command, -1);
 						if (g_strcmp0(new_command->str, existing_command) == 0)
 							{
-							g_free(existing_command);
 							duplicate_command = TRUE;
 							break;
 							}
-						g_free(existing_command);
 						iter_found = gtk_tree_model_iter_next(GTK_TREE_MODEL(sar->command_store), &iter);
 						}
 
-					if (!duplicate_command )
+					if (!duplicate_command)
 						{
 						gtk_list_store_append(sar->command_store, &iter);
 						gtk_list_store_set(sar->command_store, &iter,
@@ -143,9 +138,6 @@ static void command_store_populate(SarData* sar)
 								SAR_ACTION, action,
 								-1);
 						}
-					g_free(label);
-					g_free(tooltip);
-					g_string_free(new_command, TRUE);
 					}
 				}
 			actions = actions->next;
@@ -193,6 +185,7 @@ static gboolean keypress_cb(GtkWidget *, GdkEventKey *event, gpointer data)
 			ret = TRUE;
 			break;
 		case GDK_KEY_Return:
+		case GDK_KEY_KP_Enter:
 			break;
 		default:
 			sar->match_found = FALSE;
@@ -222,29 +215,25 @@ static gboolean match_func(GtkEntryCompletion *completion, const gchar *key, Gtk
 {
 	auto sar = static_cast<SarData *>(data);
 	gboolean ret = FALSE;
-	gchar *normalized;
 	GtkTreeModel *model;
 	GtkAction *action;
 	gchar *label;
-	GString *reg_exp_str;
 	GRegex *reg_exp;
-	GError *error = nullptr;
 
 	model = gtk_entry_completion_get_model(completion);
 	gtk_tree_model_get(GTK_TREE_MODEL(model), iter, SAR_LABEL, &label, -1);
 	gtk_tree_model_get(GTK_TREE_MODEL(model), iter, SAR_ACTION, &action, -1);
 
-	normalized = g_utf8_normalize(label, -1, G_NORMALIZE_DEFAULT);
+	g_autofree gchar *normalized = g_utf8_normalize(label, -1, G_NORMALIZE_DEFAULT);
 
-	reg_exp_str = g_string_new("\\b(\?=.*:)");
+	g_autoptr(GString) reg_exp_str = g_string_new("\\b(\?=.*:)");
 	reg_exp_str = g_string_append(reg_exp_str, key);
 
+	g_autoptr(GError) error = nullptr;
 	reg_exp = g_regex_new(reg_exp_str->str, G_REGEX_CASELESS, static_cast<GRegexMatchFlags>(0), &error);
 	if (error)
 		{
 		log_printf("Error: could not compile regular expression %s\n%s\n", reg_exp_str->str, error->message);
-		g_error_free(error);
-		error = nullptr;
 		reg_exp = g_regex_new("", static_cast<GRegexCompileFlags>(0), static_cast<GRegexMatchFlags>(0), nullptr);
 		}
 
@@ -257,8 +246,6 @@ static gboolean match_func(GtkEntryCompletion *completion, const gchar *key, Gtk
 		}
 
 	g_regex_unref(reg_exp);
-	g_string_free(reg_exp_str, TRUE);
-	g_free(normalized);
 
 	return ret;
 }

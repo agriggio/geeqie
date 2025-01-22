@@ -28,19 +28,17 @@
 #include <glib-object.h>
 
 #include "compat.h"
-#include "debug.h"
 #include "intl.h"
 #include "main-defines.h"
 #include "ui-fileops.h"
 #include "ui-misc.h"
 #include "window.h"
 
+namespace
+{
 
-enum {
-	HELP_WINDOW_WIDTH = 650,
-	HELP_WINDOW_HEIGHT = 350
-};
-
+constexpr gint HELP_WINDOW_WIDTH = 650;
+constexpr gint HELP_WINDOW_HEIGHT = 350;
 
 /*
  *-----------------------------------------------------------------------------
@@ -50,9 +48,8 @@ enum {
 
 #define SCROLL_MARKNAME "scroll_point"
 
-static void help_window_scroll(GtkWidget *text, const gchar *key)
+void help_window_scroll(GtkWidget *text, const gchar *key)
 {
-	gchar *needle;
 	GtkTextBuffer *buffer;
 	GtkTextIter iter;
 	GtkTextIter start;
@@ -60,7 +57,7 @@ static void help_window_scroll(GtkWidget *text, const gchar *key)
 
 	if (!text || !key) return;
 
-	needle = g_strdup_printf("[section:%s]", key);
+	g_autofree gchar *needle = g_strdup_printf("[section:%s]", key);
 
 	buffer = gtk_text_view_get_buffer(GTK_TEXT_VIEW(text));
 	gtk_text_buffer_get_iter_at_offset(buffer, &iter, 0);
@@ -89,13 +86,10 @@ static void help_window_scroll(GtkWidget *text, const gchar *key)
 			}
 		gtk_text_view_scroll_to_mark(GTK_TEXT_VIEW(text), mark, 0.0, TRUE, 0, 0);
 		}
-
-	g_free(needle);
 }
 
-static void help_window_load_text(GtkWidget *text, const gchar *path)
+void help_window_load_text(GtkWidget *text, const gchar *path)
 {
-	gchar *pathl;
 	FILE *f;
 	gchar s_buf[1024];
 	GtkTextBuffer *buffer;
@@ -112,21 +106,18 @@ static void help_window_load_text(GtkWidget *text, const gchar *path)
 
 	gtk_text_buffer_get_iter_at_offset(buffer, &iter, 0);
 
-	pathl = path_from_utf8(path);
+	g_autofree gchar *pathl = path_from_utf8(path);
 	f = fopen(pathl, "r");
-	g_free(pathl);
 	if (!f)
 		{
-		gchar *buf;
-		buf = g_strdup_printf(_("Unable to load:\n%s"), path);
+		g_autofree gchar *buf = g_strdup_printf(_("Unable to load:\n%s"), path);
 		gtk_text_buffer_insert(buffer, &iter, buf, -1);
-		g_free(buf);
 		}
 	else
 		{
 		while (fgets(s_buf, sizeof(s_buf), f))
 			{
-			gchar *buf;
+			g_autofree gchar *buf = nullptr;
 			gint l;
 
 			l = strlen(s_buf);
@@ -136,14 +127,9 @@ static void help_window_load_text(GtkWidget *text, const gchar *path)
 				buf = g_locale_to_utf8(s_buf, l, nullptr, nullptr, nullptr);
 				if (!buf) buf = g_strdup("\n");
 				}
-			else
-				{
-				buf = nullptr;
-				}
 			gtk_text_buffer_insert_with_tags_by_name(buffer, &iter,
 								 (buf) ? buf : s_buf, -1,
 								 "monospace", NULL);
-			g_free(buf);
 			}
 		fclose(f);
 		}
@@ -153,17 +139,19 @@ static void help_window_load_text(GtkWidget *text, const gchar *path)
 	gtk_text_view_scroll_to_iter(GTK_TEXT_VIEW(text), &iter, 0.0, TRUE, 0, 0);
 }
 
-static gboolean help_window_delete_cb(GtkWidget *widget, GdkEventAny *, gpointer)
+gboolean help_window_delete_cb(GtkWidget *widget, GdkEventAny *, gpointer)
 {
 	gq_gtk_widget_destroy(widget);
 	return TRUE;
 }
 
-static void help_window_close(GtkWidget *, gpointer data)
+void help_window_close(GtkWidget *, gpointer data)
 {
 	auto window = static_cast<GtkWidget *>(data);
 	gq_gtk_widget_destroy(window);
 }
+
+} // namespace
 
 void help_window_set_key(GtkWidget *window, const gchar *key)
 {

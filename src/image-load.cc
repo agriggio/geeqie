@@ -27,7 +27,6 @@
 
 #include <config.h>
 
-#include "debug.h"
 #include "exif.h"
 #include "filedata.h"
 #include "gq-marshal.h"
@@ -36,9 +35,15 @@
 #if HAVE_DJVU
 #  include "image-load-djvu.h"
 #endif
+#if HAVE_EXR
+#  include "image-load-exr.h"
+#endif
 #include "image-load-external.h"
 #if HAVE_FFMPEGTHUMBNAILER
 #  include "image-load-ffmpegthumbnailer.h"
+#endif
+#if HAVE_FITS
+#  include "image-load-fits.h"
 #endif
 #include "image-load-gdk.h"
 #if HAVE_HEIF
@@ -57,6 +62,9 @@
 #  include "image-load-jpegxl.h"
 #endif
 #include "image-load-libraw.h"
+#if HAVE_NPY
+#  include "image-load-npy.h"
+#endif
 #if HAVE_PDF
 #  include "image-load-pdf.h"
 #endif
@@ -70,6 +78,7 @@
 #include "jpeg-parser.h"
 #include "misc.h"
 #include "options.h"
+#include "pixbuf-util.h"
 #include "typedefs.h"
 #include "ui-fileops.h"
 
@@ -535,15 +544,12 @@ static void image_loader_area_prepared_cb(gpointer, gpointer data)
 	   https://bugzilla.gnome.org/show_bug.cgi?id=547669
 	   https://bugzilla.gnome.org/show_bug.cgi?id=589334
 	*/
-	gchar *format = il->backend->get_format_name();
+	g_autofree gchar *format = il->backend->get_format_name();
 	if (strcmp(format, "svg") == 0 ||
 	    strcmp(format, "xpm") == 0)
 		{
-		g_free(format);
 		return;
 		}
-
-	g_free(format);
 
 	pb = il->backend->get_pixbuf();
 
@@ -552,16 +558,13 @@ static void image_loader_area_prepared_cb(gpointer, gpointer data)
 	pix = gdk_pixbuf_get_pixels(pb);
 
 	memset(pix, 0, rs * h); /*this should be faster than pixbuf_fill */
-
 }
 
 static void image_loader_size_cb(gpointer,
 				 gint width, gint height, gpointer data)
 {
 	auto il = static_cast<ImageLoader *>(data);
-	gchar **mime_types;
 	gboolean scale = FALSE;
-	gint n;
 
 	g_mutex_lock(il->data_mutex);
 	il->actual_width = width;
@@ -578,14 +581,17 @@ static void image_loader_size_cb(gpointer,
 	if (il->fd->format_class == FORMAT_CLASS_VIDEO)
 		scale = TRUE;
 #endif
-	mime_types = il->backend->get_format_mime_types();
-	n = 0;
-	while (mime_types[n] && !scale)
+
+	if (!scale)
 		{
-		if (strstr(mime_types[n], "jpeg")) scale = TRUE;
-		n++;
+		g_auto(GStrv) mime_types = il->backend->get_format_mime_types();
+		gint n = 0;
+		while (mime_types[n] && !scale)
+			{
+			if (strstr(mime_types[n], "jpeg")) scale = TRUE;
+			n++;
+			}
 		}
-	g_strfreev(mime_types);
 
 	if (!scale)
 		{
@@ -595,27 +601,11 @@ static void image_loader_size_cb(gpointer,
 
 	g_mutex_lock(il->data_mutex);
 
-	gint nw;
-	gint nh;
 	if (width > il->requested_width || height > il->requested_height)
 		{
+		pixbuf_scale_aspect(il->requested_width, il->requested_height, width, height, il->actual_width, il->actual_height);
 
-		if ((static_cast<gdouble>(il->requested_width) / width) < (static_cast<gdouble>(il->requested_height) / height))
-			{
-			nw = il->requested_width;
-			nh = static_cast<gdouble>(nw) / width * height;
-			if (nh < 1) nh = 1;
-			}
-		else
-			{
-			nh = il->requested_height;
-			nw = static_cast<gdouble>(nh) / height * width;
-			if (nw < 1) nw = 1;
-			}
-
-		il->actual_width = nw;
-		il->actual_height = nh;
-		il->backend->set_size(nw, nh);
+		il->backend->set_size(il->actual_width, il->actual_height);
 		il->shrunk = TRUE;
 		}
 
@@ -647,16 +637,10 @@ static void image_loader_setup_loader(ImageLoader *il)
 
 	if (options->external_preview.enable)
 		{
-		gchar *cmd_line;
-		gchar *tilde_filename;
-
-		tilde_filename = expand_tilde(options->external_preview.select);
-
-		cmd_line = g_strdup_printf("\"%s\" \"%s\"" , tilde_filename, il->fd->path);
+		g_autofree gchar *tilde_filename = expand_tilde(options->external_preview.select);
+		g_autofree gchar *cmd_line = g_strdup_printf("\"%s\" \"%s\"", tilde_filename, il->fd->path);
 
 		external_preview = runcmd(cmd_line);
-		g_free(cmd_line);
-		g_free(tilde_filename);
 		}
 
 	if (external_preview == 0)
@@ -671,6 +655,15 @@ static void image_loader_setup_loader(ImageLoader *il)
 			{
 			DEBUG_1("Using custom ffmpegthumbnailer loader");
 			il->backend = get_image_loader_backend_ft();
+			}
+		else
+#endif
+#if HAVE_FITS
+		if (il->bytes_total >= 6 &&
+			(memcmp(il->mapped_file, "SIMPLE", 6) == 0))
+			{
+			DEBUG_1("Using custom fits loader");
+			il->backend = get_image_loader_backend_fits();
 			}
 		else
 #endif
@@ -716,6 +709,15 @@ static void image_loader_setup_loader(ImageLoader *il)
 			}
 		else
 #endif
+#if HAVE_EXR
+		if (il->bytes_total >= 4 &&
+			(memcmp(il->mapped_file, "\x76\x2F\x31\x01", 4) == 0))
+			{
+			DEBUG_1("Using custom exr loader");
+			il->backend = get_image_loader_backend_exr();
+			}
+		else
+#endif
 #if HAVE_JPEG
 		if (il->bytes_total >= 2 && il->mapped_file[0] == 0xff && il->mapped_file[1] == 0xd8)
 			{
@@ -743,6 +745,15 @@ static void image_loader_setup_loader(ImageLoader *il)
 		     	{
 			DEBUG_1("Using custom tiff loader");
 			il->backend = get_image_loader_backend_tiff();
+			}
+		else
+#endif
+#if HAVE_NPY
+		if (il->bytes_total >= 6 &&
+			(memcmp(il->mapped_file, "\x93NUMPY", 6) == 0))
+			{
+			DEBUG_1("Using custom npy loader");
+			il->backend = get_image_loader_backend_npy();
 			}
 		else
 #endif
@@ -847,7 +858,7 @@ static gboolean image_loader_continue(ImageLoader *il)
 			return G_SOURCE_REMOVE;
 			}
 
-		gsize b = MIN(il->read_buffer_size, il->bytes_total - il->bytes_read);
+		gsize b = std::min(il->read_buffer_size, il->bytes_total - il->bytes_read);
 
 		if (!il->backend->write(il->mapped_file + il->bytes_read, b, il->bytes_total, &il->error))
 			{
@@ -874,7 +885,7 @@ static gboolean image_loader_begin(ImageLoader *il)
 
 	if (il->bytes_total <= il->bytes_read) return FALSE;
 
-	gsize b = MIN(il->read_buffer_size, il->bytes_total - il->bytes_read);
+	gsize b = std::min(il->read_buffer_size, il->bytes_total - il->bytes_read);
 
 	image_loader_setup_loader(il);
 
@@ -898,7 +909,7 @@ static gboolean image_loader_begin(ImageLoader *il)
 			return FALSE;
 			}
 
-		b = MIN(il->read_buffer_size, il->bytes_total - il->bytes_read);
+		b = std::min(il->read_buffer_size, il->bytes_total - il->bytes_read);
 		if (b > 0 && !il->backend->write(il->mapped_file + il->bytes_read, b, il->bytes_total, &il->error))
 			{
 			image_loader_stop_loader(il);
@@ -993,7 +1004,7 @@ static gboolean image_loader_setup_source(ImageLoader *il)
 		/* normal file */
 		g_autofree gchar *pathl = path_from_utf8(il->fd->path);
 
-		il->mapped_file = map_file(pathl, il->bytes_total);
+		il->mapped_file = map_file(pathl, il->bytes_total); // bytes_total written from fs.stsize
 		if (!il->mapped_file)
 			{
 			return FALSE;

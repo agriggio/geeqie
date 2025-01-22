@@ -25,12 +25,12 @@
 #include <gdk-pixbuf/gdk-pixbuf.h>
 #include <gdk/gdk.h>
 #include <glib-object.h>
+#include <string>
 
 #include <config.h>
 
 #include "bar.h"
 #include "compat.h"
-#include "debug.h"
 #include "filedata.h"
 #include "histogram.h"
 #include "intl.h"
@@ -320,13 +320,12 @@ static GtkWidget *bar_pane_histogram_new(const gchar *id, const gchar *title, gi
 
 GtkWidget *bar_pane_histogram_new_from_config(const gchar **attribute_names, const gchar **attribute_values)
 {
-	gchar *title = nullptr;
-	gchar *id = g_strdup("histogram");
+	g_autofree gchar *id = g_strdup("histogram");
+	g_autofree gchar *title = nullptr;
 	gboolean expanded = TRUE;
-	gint height = 80;
+	constexpr gint height = 80;
 	gint histogram_channel = HCHAN_RGB;
 	gint histogram_mode = 0;
-	GtkWidget *ret;
 
 	while (*attribute_names)
 		{
@@ -339,14 +338,12 @@ GtkWidget *bar_pane_histogram_new_from_config(const gchar **attribute_names, con
 		if (READ_INT_FULL("histogram_channel", histogram_channel)) continue;
 		if (READ_INT_FULL("histogram_mode", histogram_mode)) continue;
 
-		log_printf("unknown attribute %s = %s\n", option, value);
+		config_file_error((std::string("Unknown attribute: ") + option + " = " + value).c_str());
 		}
 
 	bar_pane_translate_title(PANE_HISTOGRAM, id, &title);
-	ret = bar_pane_histogram_new(id, title, height, expanded, histogram_channel, histogram_mode);
-	g_free(title);
-	g_free(id);
-	return ret;
+
+	return bar_pane_histogram_new(id, title, height, expanded, histogram_channel, histogram_mode);
 }
 
 void bar_pane_histogram_update_from_config(GtkWidget *pane, const gchar **attribute_names, const gchar **attribute_values)
@@ -369,8 +366,7 @@ void bar_pane_histogram_update_from_config(GtkWidget *pane, const gchar **attrib
 		if (READ_INT_FULL("histogram_channel", histogram_channel)) continue;
 		if (READ_INT_FULL("histogram_mode", histogram_mode)) continue;
 
-
-		log_printf("unknown attribute %s = %s\n", option, value);
+		config_file_error((std::string("Unknown attribute: ") + option + " = " + value).c_str());
 		}
 
 	histogram_set_channel(phd->histogram, histogram_channel);

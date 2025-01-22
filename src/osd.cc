@@ -28,6 +28,7 @@
 #include <cmath>
 #include <cstdlib>
 #include <cstring>
+#include <stdexcept>
 
 #include <gdk/gdk.h>
 #include <glib-object.h>
@@ -51,7 +52,11 @@ struct TagData
 	gchar *title;
 };
 
-const gchar *predefined_tags[][2] = {
+constexpr struct
+{
+	const gchar *key;
+	const gchar *title;
+} predefined_tags[] = {
 	{"%name%",							N_("Name")},
 	{"%path:60%",						N_("Path")},
 	{"%date%",							N_("Date")},
@@ -95,7 +100,7 @@ const gchar *predefined_tags[][2] = {
 	{"%Xmp.dc.creator%",				N_("© Creator")},
 	{"%Xmp.dc.contributor%",			N_("© Contributor")},
 	{"%Xmp.dc.rights%",					N_("© Rights")},
-	{nullptr, nullptr}};
+};
 
 constexpr std::array<GtkTargetEntry, 1> osd_drag_types{{
 	{ const_cast<gchar *>("text/plain"), GTK_TARGET_SAME_APP, TARGET_TEXT_PLAIN }
@@ -163,11 +168,6 @@ GtkWidget *osd_new(gint max_cols, GtkWidget *template_view)
 {
 	GtkWidget *vbox;
 	GtkWidget *scrolled;
-	gint i = 0;
-	gint rows = 0;
-	gint max_rows = 0;
-	gint cols = 0;
-	gdouble entries;
 	GtkWidget *viewport;
 
 	vbox = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
@@ -187,27 +187,25 @@ GtkWidget *osd_new(gint max_cols, GtkWidget *template_view)
 	gq_gtk_container_add(GTK_WIDGET(scrolled), viewport);
 	gtk_widget_show(viewport);
 
-	entries = ((gdouble)sizeof(predefined_tags) / sizeof(predefined_tags[0])) - 1;
-	max_rows = ceil(entries / max_cols);
+	const gint entries = G_N_ELEMENTS(predefined_tags);
+	const gint max_rows = ceil(static_cast<gdouble>(entries) / max_cols);
 
 	GtkGrid *grid;
 	grid = GTK_GRID(gtk_grid_new());
 	gq_gtk_container_add(GTK_WIDGET(viewport), GTK_WIDGET(grid));
 	gtk_widget_show(GTK_WIDGET(grid));
 
-	for (rows = 0; rows < max_rows; rows++)
+	gint i = 0;
+	for (gint rows = 0; rows < max_rows; rows++)
 		{
-		cols = 0;
-
-		while (cols < max_cols && predefined_tags[i][0])
+		for (gint cols = 0; cols < max_cols && i < entries; cols++, i++)
 			{
-			set_osd_button(grid, rows, cols, predefined_tags[i][0], predefined_tags[i][1], template_view);
-			i = i + 1;
-			cols++;
+			set_osd_button(grid, rows, cols, predefined_tags[i].key, predefined_tags[i].title, template_view);
 			}
 		}
 	return vbox;
 }
+
 static gchar *keywords_to_string(FileData *fd)
 {
 	GList *keywords;
@@ -245,7 +243,7 @@ static gchar *keywords_to_string(FileData *fd)
 	return nullptr;
 }
 
-gchar *image_osd_mkinfo(const gchar *str, FileData *fd, GHashTable *vars)
+gchar *image_osd_mkinfo(const gchar *str, FileData *fd, const OsdTemplate &vars)
 {
 	gchar delim = '%';
 	gchar imp = '|';
@@ -256,8 +254,6 @@ gchar *image_osd_mkinfo(const gchar *str, FileData *fd, GHashTable *vars)
 	guint pos;
 	guint prev;
 	gboolean want_separator = FALSE;
-	gchar *name;
-	gchar *data;
 	GString *osd_info;
 	gchar *ret;
 
@@ -272,7 +268,6 @@ gchar *image_osd_mkinfo(const gchar *str, FileData *fd, GHashTable *vars)
 		guint limit = 0;
 		gchar *trunc = nullptr;
 		gchar *limpos = nullptr;
-		gchar *extra = nullptr;
 		gchar *extrapos = nullptr;
 		gchar *p;
 
@@ -307,12 +302,13 @@ gchar *image_osd_mkinfo(const gchar *str, FileData *fd, GHashTable *vars)
 		if (limpos)
 			limit = static_cast<guint>(atoi(limpos));
 
-		if (extrapos)
-			extra = g_strndup(extrapos, end - extrapos);
+		g_autofree gchar *extra = extrapos ? g_strndup(extrapos, end - extrapos) : nullptr;
 
-		name = g_strndup(start+1, (trunc ? trunc : end)-start-1);
+		g_autofree gchar *name = g_strndup(start+1, (trunc ? trunc : end)-start-1);
+
 		pos = start - osd_info->str;
-		data = nullptr;
+
+		g_autofree gchar *data = nullptr;
 
 		if (strcmp(name, "keywords") == 0)
 			{
@@ -343,78 +339,75 @@ gchar *image_osd_mkinfo(const gchar *str, FileData *fd, GHashTable *vars)
 #endif
 		else
 			{
-			data = g_strdup(static_cast<const gchar *>(g_hash_table_lookup(vars, static_cast<gconstpointer>(name))));
-			if (!data)
+			try
+				{
+				data = g_strdup(vars.at(name).c_str());
+				}
+			catch (const std::out_of_range &)
+				{
 				data = metadata_read_string(fd, name, METADATA_FORMATTED);
+				}
 			}
 
 		if (data && *data && limit > 0 && strlen(data) > limit + 3)
 			{
-			gchar *new_data = g_strdup_printf("%-*.*s...", limit, limit, data);
-			g_free(data);
-			data = new_data;
+			g_autofree gchar *new_data = g_strdup_printf("%-*.*s...", limit, limit, data);
+			std::swap(data, new_data);
 			}
 
 		if (data)
 			{
 			/* Since we use pango markup to display, we need to escape here */
-			gchar *escaped = g_markup_escape_text(data, -1);
-			g_free(data);
-			data = escaped;
+			g_autofree gchar *escaped = g_markup_escape_text(data, -1);
+			std::swap(data, escaped);
 			}
 
-		if (extra)
+		if (data && *data && extra)
 			{
-			if (data && *data)
-				{
-				/* Display data between left and right parts of extra string
-				 * the data is expressed by a '*' character. A '*' may be escaped
-				 * by a \. You should escape all '*' characters, do not rely on the
-				 * current implementation which only replaces the first unescaped '*'.
-				 * If no "*" is present, the extra string is just appended to data string.
-				 * Pango mark up is accepted in left and right parts.
-				 * Any \n is replaced by a newline
-				 * Examples:
-				 * "<i>*</i>\n" -> data is displayed in italics ended with a newline
-				 * "\n" 	-> ended with newline
-				 * 'ISO *'	-> prefix data with 'ISO ' (ie. 'ISO 100')
-				 * "\**\*"	-> prefix data with a star, and append a star (ie. "*100*")
-				 * "\\*"	-> prefix data with an anti slash (ie "\100")
-				 * 'Collection <b>*</b>\n' -> display data in bold prefixed by 'Collection ' and a newline is appended
-				 */
-				/** @FIXME using background / foreground colors lead to weird results.
-				 */
-				gchar *new_data;
-				gchar *left = nullptr;
-				gchar *right = extra;
-				gchar *p;
-				guint len = strlen(extra);
+			/* Display data between left and right parts of extra string
+			 * the data is expressed by a '*' character. A '*' may be escaped
+			 * by a \. You should escape all '*' characters, do not rely on the
+			 * current implementation which only replaces the first unescaped '*'.
+			 * If no "*" is present, the extra string is just appended to data string.
+			 * Pango mark up is accepted in left and right parts.
+			 * Any \n is replaced by a newline
+			 * Examples:
+			 * "<i>*</i>\n" -> data is displayed in italics ended with a newline
+			 * "\n" 	-> ended with newline
+			 * 'ISO *'	-> prefix data with 'ISO ' (ie. 'ISO 100')
+			 * "\**\*"	-> prefix data with a star, and append a star (ie. "*100*")
+			 * "\\*"	-> prefix data with an anti slash (ie "\100")
+			 * 'Collection <b>*</b>\n' -> display data in bold prefixed by 'Collection ' and a newline is appended
+			 */
+			/** @FIXME using background / foreground colors lead to weird results.
+			 */
+			gchar *left = nullptr;
+			gchar *right = extra;
+			gchar *p;
+			guint len = strlen(extra);
 
-				/* Search for left and right parts and unescape characters */
-				for (p = extra; *p; p++, len--)
-					if (p[0] == '\\')
+			/* Search for left and right parts and unescape characters */
+			for (p = extra; *p; p++, len--)
+				if (p[0] == '\\')
+					{
+					if (p[1] == 'n')
 						{
-						if (p[1] == 'n')
-							{
-							memmove(p+1, p+2, --len);
-							p[0] = '\n';
-							}
-						else if (p[1] != '\0')
-							memmove(p, p+1, len--); // includes \0
+						memmove(p+1, p+2, --len);
+						p[0] = '\n';
 						}
-					else if (p[0] == '*' && !left)
-						{
-						right = p + 1;
-						left = extra;
-						}
+					else if (p[1] != '\0')
+						memmove(p, p+1, len--); // includes \0
+					}
+				else if (p[0] == '*' && !left)
+					{
+					right = p + 1;
+					left = extra;
+					}
 
-				if (left) right[-1] = '\0';
+			if (left) right[-1] = '\0';
 
-				new_data = g_strdup_printf("%s%s%s", left ? left : "", data, right);
-				g_free(data);
-				data = new_data;
-				}
-			g_free(extra);
+			g_autofree gchar *new_data = g_strdup_printf("%s%s%s", left ? left : "", data, right);
+			std::swap(data, new_data);
 			}
 
 		g_string_erase(osd_info, pos, end-start+1);
@@ -443,9 +436,6 @@ gchar *image_osd_mkinfo(const gchar *str, FileData *fd, GHashTable *vars)
 		if (osd_info->str[pos] == '\n') want_separator = FALSE;
 
 		prev = pos - 1;
-
-		g_free(name);
-		g_free(data);
 		}
 
 	/* search and destroy empty lines */
@@ -463,22 +453,8 @@ gchar *image_osd_mkinfo(const gchar *str, FileData *fd, GHashTable *vars)
 	return g_strchomp(ret);
 }
 
-void osd_template_insert(GHashTable *vars, const gchar *keyword, const gchar *value, OsdTemplateFlags flags)
+void osd_template_insert(OsdTemplate &vars, const gchar *keyword, const gchar *value)
 {
-	if (!value)
-		{
-		g_hash_table_insert(vars, const_cast<gchar *>(keyword), g_strdup(""));
-		return;
-		}
-
-	if (flags & OSDT_NO_DUP)
-		{
-		g_hash_table_insert(vars, const_cast<gchar *>(keyword), const_cast<gchar *>(value));
-		return;
-		}
-
-	g_hash_table_insert(vars, const_cast<gchar *>(keyword), g_strdup(value));
-
-	if (flags & OSDT_FREE) g_free(const_cast<gchar *>(value));
+	vars[keyword] = value ? value : "";
 }
 /* vim: set shiftwidth=8 softtabstop=0 cindent cinoptions={1s: */

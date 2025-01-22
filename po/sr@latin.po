@@ -1740,11 +1740,6 @@ msgstr "Širina"
 msgid "Height"
 msgstr "Visina"
 
-#: src/dupe.cc:5150
-#, fuzzy
-msgid "Path\n"
-msgstr "Putanja"
-
 #: src/dupe.cc:5249
 msgid "Export duplicates data"
 msgstr ""
@@ -8886,15 +8881,6 @@ msgstr ""
 
 #~ msgid "View as _Icons"
 #~ msgstr "Gledaj kao _ikonice"
-
-#~ msgid "UFRaw Batch"
-#~ msgstr "Paketno razvij u NLRaw-u"
-
-#~ msgid "Edit UFRaw ID file"
-#~ msgstr "Izmeni NLRaw IB datoteku"
-
-#~ msgid "UFRaw Batch recursive"
-#~ msgstr "Paketno razvij sve sadržano"
 
 #, fuzzy
 #~ msgid "_Show Guidelines"

@@ -28,6 +28,7 @@
 #if !HAVE__NL_TIME_FIRST_WEEKDAY
 #  include <clocale>
 #endif
+#include <algorithm>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -37,7 +38,6 @@
 #include <langinfo.h>
 #include <pwd.h>
 
-#include "debug.h"
 #include "main.h"
 #include "options.h"
 #include "ui-fileops.h"
@@ -71,8 +71,6 @@ gchar *utf8_validate_or_convert(const gchar *text)
 
 gint utf8_compare(const gchar *s1, const gchar *s2, gboolean case_sensitive)
 {
-	gchar *s1_key;
-	gchar *s2_key;
 	gchar *s1_t;
 	gchar *s2_t;
 	gint ret;
@@ -91,13 +89,10 @@ gint utf8_compare(const gchar *s1, const gchar *s2, gboolean case_sensitive)
 		s2_t = const_cast<gchar *>(s2);
 		}
 
-	s1_key = g_utf8_collate_key(s1_t, -1);
-	s2_key = g_utf8_collate_key(s2_t, -1);
+	g_autofree gchar *s1_key = g_utf8_collate_key(s1_t, -1);
+	g_autofree gchar *s2_key = g_utf8_collate_key(s2_t, -1);
 
 	ret = strcmp(s1_key, s2_key);
-
-	g_free(s1_key);
-	g_free(s2_key);
 
 	if (!case_sensitive)
 		{
@@ -150,16 +145,15 @@ gchar *expand_tilde(const gchar *filename)
 		}
 	else
 		{
-		gchar *username;
 		struct passwd *passwd;
 
+		g_autofree gchar *username = nullptr;
 		if (slash)
 			username = g_strndup(notilde, slash - notilde);
 		else
 			username = g_strdup(notilde);
 
 		passwd = getpwnam(username);
-		g_free(username);
 
 		if (!passwd)
 			return g_strdup(filename);
@@ -212,15 +206,13 @@ static gchar *decode_geo_script(const gchar *path_dir, const gchar *input_text)
 gchar *decode_geo_parameters(const gchar *input_text)
 {
 	gchar *message;
-	gchar *dir;
 
 	message = decode_geo_script(gq_bindir, input_text);
 	if (strstr(message, "Error"))
 		{
 		g_free(message);
-		dir = g_build_filename(get_rc_dir(), "applications", NULL);
+		g_autofree gchar *dir = g_build_filename(get_rc_dir(), "applications", NULL);
 		message = decode_geo_script(dir, input_text);
-		g_free(dir);
 		}
 
 	return message;
@@ -426,33 +418,23 @@ gchar *get_file_owner(const gchar *path_utf8)
 
 gchar *get_symbolic_link(const gchar *path_utf8)
 {
-	gchar *sl;
-	struct stat st;
 	gchar *ret = g_strdup("");
 
-	sl = path_from_utf8(path_utf8);
+	g_autofree gchar *sl = path_from_utf8(path_utf8);
 
+	struct stat st;
 	if (lstat(sl, &st) == 0 && S_ISLNK(st.st_mode))
 		{
-		gchar *buf;
-		gint l;
+		g_autofree auto *buf = static_cast<gchar *>(g_malloc(st.st_size + 1));
 
-		buf = static_cast<gchar *>(g_malloc(st.st_size + 1));
-		l = readlink(sl, buf, st.st_size);
-
+		const gint l = readlink(sl, buf, st.st_size);
 		if (l == st.st_size)
 			{
 			buf[l] = '\0';
 
-			ret = buf;
-			}
-		else
-			{
-			g_free(buf);
+			std::swap(ret, buf);
 			}
 		}
-
-	g_free(sl);
 
 	return ret;
 }
@@ -518,7 +500,7 @@ void cell_renderer_height_override(GtkCellRenderer *renderer)
 		GParamSpecInt *spec_int;
 
 		spec_int = G_PARAM_SPEC_INT(spec);
-		if (spec_int->maximum < CELL_HEIGHT_OVERRIDE) spec_int->maximum = CELL_HEIGHT_OVERRIDE;
+		spec_int->maximum = std::max(spec_int->maximum, CELL_HEIGHT_OVERRIDE);
 		}
 }
 

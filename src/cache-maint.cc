@@ -32,7 +32,6 @@
 #include "cache-loader.h"
 #include "cache.h"
 #include "compat.h"
-#include "debug.h"
 #include "filedata.h"
 #include "intl.h"
 #include "layout.h"
@@ -65,6 +64,54 @@ struct CMData
 	gboolean clear;
 	gboolean metadata;
 	gboolean remote;
+	GtkApplication *app;
+};
+
+struct CacheManager
+{
+	GenericDialog *dialog;
+	GtkWidget *folder_entry;
+	GtkWidget *progress;
+
+	GList *list_todo;
+
+	gint count_total;
+	gint count_done;
+};
+
+struct CacheOpsData
+{
+	GenericDialog *gd;
+	ThumbLoaderStd *tl;
+	CacheLoader *cl;
+	GSourceFunc destroy_func; /* Used by the command line prog. functions */
+	GtkApplication *app;
+
+	GList *list;
+	GList *list_dir;
+
+	gint days;
+	gboolean clear;
+
+	GtkWidget *button_close;
+	GtkWidget *button_stop;
+	GtkWidget *button_start;
+	GtkWidget *progress;
+	GtkWidget *progress_bar;
+	GtkWidget *spinner;
+
+	GtkWidget *group;
+	GtkWidget *entry;
+
+	gint count_total;
+	gint count_done;
+
+	gboolean local;
+	gboolean recurse;
+
+	gboolean remote;
+
+	guint idle_id; /* event source id */
 };
 
 constexpr gint PURGE_DIALOG_WIDTH = 400;
@@ -111,67 +158,47 @@ void cache_maintain_home_close(CMData *cm)
  *-----------------------------------------------------------------------------
  */
 static gchar *cache_maintenance_path = nullptr;
-static GtkStatusIcon *status_icon;
 
-static void cache_manager_sim_remote(const gchar *path, gboolean recurse, GSourceFunc destroy_func);
+static void cache_manager_sim_remote(GtkApplication *app, const gchar *path, gboolean recurse, GSourceFunc destroy_func);
 
 static gboolean cache_maintenance_sim_stop_cb(gpointer data)
 {
+	auto *cd = static_cast<CacheOpsData *>(data);
+
+	g_application_withdraw_notification(G_APPLICATION(cd->app), "cache_maintenance");
+
 	g_free(data);
+
 	exit(EXIT_SUCCESS);
-	return G_SOURCE_REMOVE;
 }
 
 static gboolean cache_maintenance_render_stop_cb(gpointer data)
 {
-	g_free(data);
-	gtk_status_icon_set_tooltip_text(status_icon, _("Geeqie: Creating sim data..."));
-	cache_manager_sim_remote(cache_maintenance_path, TRUE, cache_maintenance_sim_stop_cb);
+	auto *cd = static_cast<CacheOpsData *>(data);
+
+	cache_maintenance_notification(cd->app, _("Creating sim data..."), TRUE);
+
+	cache_manager_sim_remote(cd->app, cache_maintenance_path, TRUE, cache_maintenance_sim_stop_cb);
+
 	return G_SOURCE_REMOVE;
 }
 
 static void cache_maintenance_clean_stop_cb(gpointer data)
 {
-	cache_maintain_home_close(static_cast<CMData *>(data));
-	gtk_status_icon_set_tooltip_text(status_icon, _("Geeqie: Creating thumbs..."));
-	cache_manager_render_remote(cache_maintenance_path, TRUE, options->thumbnails.cache_into_dirs, cache_maintenance_render_stop_cb);
+	auto *cm = static_cast<CMData *>(data);
+
+
+	cache_maintenance_notification(cm->app,  _("Creating thumbs..."), TRUE);
+	cache_manager_render_remote(cm->app, cache_maintenance_path, TRUE, options->thumbnails.cache_into_dirs, cache_maintenance_render_stop_cb);
 }
 
-static void cache_maintenance_user_cancel_cb()
-{
-	exit(EXIT_FAILURE);
-}
-
-static void cache_maintenance_status_icon_activate_cb(GtkStatusIcon *, gpointer)
-{
-	GtkWidget *menu;
-	GtkWidget *item;
-
-	menu = gtk_menu_new();
-
-	item = gtk_menu_item_new_with_label(_("Exit Geeqie Cache Maintenance"));
-
-	g_signal_connect(G_OBJECT(item), "activate", cache_maintenance_user_cancel_cb, item);
-	gtk_menu_shell_append(GTK_MENU_SHELL(menu), item);
-	gtk_widget_show(item);
-
-	/* take ownership of menu */
-	g_object_ref_sink(G_OBJECT(menu));
-
-	gtk_menu_popup_at_pointer(GTK_MENU(menu), nullptr);
-}
-
-void cache_maintenance(const gchar *path)
+void cache_maintenance(GtkApplication *app, const gchar *path)
 {
 	cache_maintenance_path = g_strdup(path);
 
-	g_autoptr(GdkPixbuf) pixbuf_icon = pixbuf_inline(PIXBUF_INLINE_ICON);
-	status_icon = gtk_status_icon_new_from_pixbuf(pixbuf_icon);
-	gtk_status_icon_set_tooltip_text(status_icon, _("Geeqie: Cleaning thumbs..."));
-	gtk_status_icon_set_visible(status_icon, TRUE);
-	g_signal_connect(G_OBJECT(status_icon), "activate", G_CALLBACK(cache_maintenance_status_icon_activate_cb), NULL);
+	cache_maintenance_notification(app, _("Cleaning thumbs and sims..."), TRUE);
 
-	cache_maintain_home_remote(FALSE, FALSE, cache_maintenance_clean_stop_cb);
+	cache_maintain_home_remote(app, FALSE, FALSE, cache_maintenance_clean_stop_cb);
 }
 
 /*
@@ -184,11 +211,9 @@ static gboolean isempty(const gchar *path)
 {
 	DIR *dp;
 	struct dirent *dir;
-	gchar *pathl;
 
-	pathl = path_from_utf8(path);
+	g_autofree gchar *pathl = path_from_utf8(path);
 	dp = opendir(pathl);
-	g_free(pathl);
 	if (!dp) return FALSE;
 
 	while ((dir = readdir(dp)) != nullptr)
@@ -281,7 +306,7 @@ static gboolean cache_maintain_home_cb(gpointer data)
 			while (work)
 				{
 				auto fd_list = static_cast<FileData *>(work->data);
-				gchar *path_buf = g_strdup(fd_list->path);
+				g_autofree gchar *path_buf = g_strdup(fd_list->path);
 
 				gchar *dot = strrchr(path_buf, '.');
 
@@ -296,7 +321,7 @@ static gboolean cache_maintain_home_cb(gpointer data)
 					{
 					still_have_a_file = TRUE;
 					}
-				g_free(path_buf);
+
 				work = work->next;
 				}
 			}
@@ -431,10 +456,12 @@ static void cache_maintain_home(gboolean metadata, gboolean clear, GtkWidget *pa
  *
  *
  */
-void cache_maintain_home_remote(gboolean metadata, gboolean clear, GDestroyNotify func)
+void cache_maintain_home_remote(GtkApplication *app, gboolean metadata, gboolean clear, GDestroyNotify func)
 {
 	CMData *cm = cache_maintain_data_new(clear, metadata, TRUE);
 	if (!cm) return;
+
+	cm->app = app;
 
 	cm->idle_id = g_idle_add_full(G_PRIORITY_LOW, cache_maintain_home_cb, cm, func);
 }
@@ -539,52 +566,6 @@ void cache_notify_cb(FileData *fd, NotifyType type, gpointer)
  *-------------------------------------------------------------------
  */
 
-struct CacheManager
-{
-	GenericDialog *dialog;
-	GtkWidget *folder_entry;
-	GtkWidget *progress;
-
-	GList *list_todo;
-
-	gint count_total;
-	gint count_done;
-};
-
-struct CacheOpsData
-{
-	GenericDialog *gd;
-	ThumbLoaderStd *tl;
-	CacheLoader *cl;
-	GSourceFunc destroy_func; /* Used by the command line prog. functions */
-
-	GList *list;
-	GList *list_dir;
-
-	gint days;
-	gboolean clear;
-
-	GtkWidget *button_close;
-	GtkWidget *button_stop;
-	GtkWidget *button_start;
-	GtkWidget *progress;
-	GtkWidget *progress_bar;
-	GtkWidget *spinner;
-
-	GtkWidget *group;
-	GtkWidget *entry;
-
-	gint count_total;
-	gint count_done;
-
-	gboolean local;
-	gboolean recurse;
-
-	gboolean remote;
-
-	guint idle_id; /* event source id */
-};
-
 static void cache_manager_render_reset(CacheOpsData *cd)
 {
 	filelist_free(cd->list);
@@ -629,6 +610,11 @@ static void cache_manager_render_stop_cb(GenericDialog *, gpointer data)
 
 	gq_gtk_entry_set_text(GTK_ENTRY(cd->progress), _("stopped"));
 	cache_manager_render_finish(cd);
+
+	if (cd->destroy_func)
+		{
+		g_idle_add(cd->destroy_func, nullptr);
+		}
 }
 
 static void cache_manager_render_folder(CacheOpsData *cd, FileData *dir_fd)
@@ -731,7 +717,6 @@ static gboolean cache_manager_render_file(CacheOpsData *cd)
 static void cache_manager_render_start_cb(GenericDialog *, gpointer data)
 {
 	auto cd = static_cast<CacheOpsData *>(data);
-	gchar *path;
 	GList *list_total = nullptr;
 
 	if(!cd->remote)
@@ -739,7 +724,7 @@ static void cache_manager_render_start_cb(GenericDialog *, gpointer data)
 		if (cd->list || !gtk_widget_get_sensitive(cd->button_start)) return;
 		}
 
-	path = remove_trailing_slash((gq_gtk_entry_get_text(GTK_ENTRY(cd->entry))));
+	g_autofree gchar *path = remove_trailing_slash((gq_gtk_entry_get_text(GTK_ENTRY(cd->entry))));
 	parse_out_relatives(path);
 
 	if (!isdir(path))
@@ -777,15 +762,11 @@ static void cache_manager_render_start_cb(GenericDialog *, gpointer data)
 
 		while (cache_manager_render_file(cd));
 		}
-
-	g_free(path);
 }
 
 static void cache_manager_render_start_render_remote(CacheOpsData *cd, const gchar *user_path)
 {
-	gchar *path;
-
-	path = remove_trailing_slash(user_path);
+	g_autofree gchar *path = remove_trailing_slash(user_path);
 	parse_out_relatives(path);
 
 	if (!isdir(path))
@@ -799,10 +780,9 @@ static void cache_manager_render_start_render_remote(CacheOpsData *cd, const gch
 		dir_fd = file_data_new_dir(path);
 		cache_manager_render_folder(cd, dir_fd);
 		file_data_unref(dir_fd);
-		while (cache_manager_render_file(cd));
+		while (cache_manager_render_file(cd))
+			;
 		}
-
-	g_free(path);
 }
 
 static void cache_manager_render_dialog(GtkWidget *widget, const gchar *path)
@@ -879,7 +859,7 @@ static void cache_manager_render_dialog(GtkWidget *widget, const gchar *path)
  *
  *
  */
-void cache_manager_render_remote(const gchar *path, gboolean recurse, gboolean local, GSourceFunc destroy_func)
+void cache_manager_render_remote(GtkApplication *app, const gchar *path, gboolean recurse, gboolean local, GSourceFunc destroy_func)
 {
 	CacheOpsData *cd;
 
@@ -888,6 +868,7 @@ void cache_manager_render_remote(const gchar *path, gboolean recurse, gboolean l
 	cd->local = local;
 	cd->remote = TRUE;
 	cd->destroy_func = destroy_func;
+	cd->app = app;
 
 	cache_manager_render_start_render_remote(cd, path);
 }
@@ -1201,11 +1182,9 @@ static void cache_manager_help_cb(GenericDialog *, gpointer)
 static GtkWidget *cache_manager_location_label(GtkWidget *group, const gchar *subdir)
 {
 	GtkWidget *label;
-	gchar *buf;
 
-	buf = g_strdup_printf(_("Location: %s"), subdir);
+	g_autofree gchar *buf = g_strdup_printf(_("Location: %s"), subdir);
 	label = pref_label_new(group, buf);
-	g_free(buf);
 	gtk_label_set_xalign(GTK_LABEL(label), 0.0);
 	gtk_label_set_yalign(GTK_LABEL(label), 0.5);
 
@@ -1290,11 +1269,9 @@ static void cache_manager_sim_file_done_cb(CacheLoader *, gint, gpointer data)
 	while (cache_manager_sim_file(cd));
 }
 
-static void cache_manager_sim_start_sim_remote(CacheOpsData *cd, const gchar *user_path)
+static void cache_manager_sim_start_sim_remote(GtkApplication *, CacheOpsData *cd, const gchar *user_path)
 {
-	gchar *path;
-
-	path = remove_trailing_slash(user_path);
+	g_autofree gchar *path = remove_trailing_slash(user_path);
 	parse_out_relatives(path);
 
 	if (!isdir(path))
@@ -1308,10 +1285,9 @@ static void cache_manager_sim_start_sim_remote(CacheOpsData *cd, const gchar *us
 		dir_fd = file_data_new_dir(path);
 		cache_manager_sim_folder(cd, dir_fd);
 		file_data_unref(dir_fd);
-		while (cache_manager_sim_file(cd));
+		while (cache_manager_sim_file(cd))
+			;
 		}
-
-	g_free(path);
 }
 
 /**
@@ -1322,7 +1298,7 @@ static void cache_manager_sim_start_sim_remote(CacheOpsData *cd, const gchar *us
  *
  *
  */
-static void cache_manager_sim_remote(const gchar *path, gboolean recurse, GSourceFunc destroy_func)
+static void cache_manager_sim_remote(GtkApplication *app, const gchar *path, gboolean recurse, GSourceFunc destroy_func)
 {
 	CacheOpsData *cd;
 
@@ -1330,8 +1306,9 @@ static void cache_manager_sim_remote(const gchar *path, gboolean recurse, GSourc
 	cd->recurse = recurse;
 	cd->remote = TRUE;
 	cd->destroy_func = destroy_func;
+	cd->app = app;
 
-	cache_manager_sim_start_sim_remote(cd, path);
+	cache_manager_sim_start_sim_remote(app, cd, path);
 }
 
 static gboolean cache_manager_sim_file(CacheOpsData *cd)
@@ -1392,7 +1369,6 @@ static gboolean cache_manager_sim_file(CacheOpsData *cd)
 static void cache_manager_sim_start_cb(GenericDialog *, gpointer data)
 {
 	auto cd = static_cast<CacheOpsData *>(data);
-	gchar *path;
 	GList *list_total = nullptr;
 
 	if (!cd->remote)
@@ -1400,7 +1376,7 @@ static void cache_manager_sim_start_cb(GenericDialog *, gpointer data)
 		if (cd->list || !gtk_widget_get_sensitive(cd->button_start)) return;
 		}
 
-	path = remove_trailing_slash((gq_gtk_entry_get_text(GTK_ENTRY(cd->entry))));
+	g_autofree gchar *path = remove_trailing_slash((gq_gtk_entry_get_text(GTK_ENTRY(cd->entry))));
 	parse_out_relatives(path);
 
 	if (!isdir(path))
@@ -1436,10 +1412,9 @@ static void cache_manager_sim_start_cb(GenericDialog *, gpointer data)
 		g_list_free(list_total);
 		cd->count_done = 0;
 
-		while (cache_manager_sim_file(cd));
+		while (cache_manager_sim_file(cd))
+			;
 		}
-
-	g_free(path);
 }
 
 static void cache_manager_sim_load_dialog(GtkWidget *widget, const gchar *path)
@@ -1522,15 +1497,13 @@ static void cache_manager_cache_maintenance_close_cb(GenericDialog *, gpointer d
 static void cache_manager_cache_maintenance_start_cb(GenericDialog *, gpointer data)
 {
 	auto cd = static_cast<CacheOpsData *>(data);
-	gchar *path;
-	gchar *cmd_line;
 
 	if (!cd->remote)
 		{
 		if (cd->list || !gtk_widget_get_sensitive(cd->button_start)) return;
 		}
 
-	path = remove_trailing_slash((gq_gtk_entry_get_text(GTK_ENTRY(cd->entry))));
+	g_autofree gchar *path = remove_trailing_slash((gq_gtk_entry_get_text(GTK_ENTRY(cd->entry))));
 	parse_out_relatives(path);
 
 	if (!isdir(path))
@@ -1548,17 +1521,14 @@ static void cache_manager_cache_maintenance_start_cb(GenericDialog *, gpointer d
 		}
 	else
 		{
-		cmd_line = g_strdup_printf("%s --cache-maintenance=\"%s\"", gq_executable_path, path);
+		g_autofree gchar *cmd_line = g_strdup_printf("%s --cache-maintenance=\"%s\"", gq_executable_path, path);
 
 		g_spawn_command_line_async(cmd_line, nullptr);
 
-		g_free(cmd_line);
 		generic_dialog_close(cd->gd);
 		cache_manager_sim_reset(cd);
 		g_free(cd);
 		}
-
-	g_free(path);
 }
 
 static void cache_manager_cache_maintenance_load_dialog(GtkWidget *widget, const gchar *path)
@@ -1613,7 +1583,6 @@ void cache_manager_show()
 	GtkWidget *button;
 	GtkWidget *table;
 	GtkSizeGroup *sizegroup;
-	gchar *path;
 
 	if (cache_manager)
 		{
@@ -1658,9 +1627,8 @@ void cache_manager_show()
 
 	group = pref_group_new(gd->vbox, FALSE, _("Shared thumbnail cache"), GTK_ORIENTATION_VERTICAL);
 
-	path = g_build_filename(get_thumbnails_standard_cache_dir(), NULL);
+	g_autofree gchar *path = g_build_filename(get_thumbnails_standard_cache_dir(), NULL);
 	cache_manager_location_label(group, path);
-	g_free(path);
 
 	table = pref_table_new(group, 2, 2, FALSE, FALSE);
 
@@ -1715,6 +1683,33 @@ void cache_manager_show()
 	pref_table_label(table, 1, 0, _("Run cache maintenance as a background job."), GTK_ALIGN_START);
 	gtk_widget_set_sensitive(group, options->thumbnails.enable_caching);
 
+	/* @FIXME This feature does not work. The command line option must be used */
+	gtk_widget_set_sensitive(group, FALSE);
+	gtk_widget_set_tooltip_text(button, _("Feature disabled in this version.\nUse command line:\nGQ_CACHE_MAINTENANCE=  geeqie --cache-maintenance=<FOLDER>"));
+
 	gtk_widget_show(cache_manager->dialog->dialog);
 }
+
+void cache_maintenance_notification(GtkApplication *app, const gchar *message, gboolean show_quit_button)
+{
+	GIcon *geeqie_icon;
+	GNotification *notification;
+
+	notification = g_notification_new("Geeqie");
+	geeqie_icon = g_themed_icon_new(PIXBUF_INLINE_ICON);
+
+	g_notification_set_body(notification, message);
+	g_notification_set_priority(notification, G_NOTIFICATION_PRIORITY_NORMAL);
+	g_notification_set_title(notification, _("Cache Maintenance"));
+
+	if (show_quit_button)
+		{
+		g_notification_add_button(notification, _("Quit"), "app.quit");
+		}
+
+	g_application_send_notification(G_APPLICATION(app), "cache_maintenance", notification);
+
+	g_object_unref(geeqie_icon);
+}
+
 /* vim: set shiftwidth=8 softtabstop=0 cindent cinoptions={1s: */

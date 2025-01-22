@@ -31,7 +31,6 @@
 #include <pango/pangocairo.h>
 
 #include "compat.h"
-#include "debug.h"
 #include "exif.h"
 #include "filedata.h"
 #include "image-load.h"
@@ -134,9 +133,7 @@ gboolean print_job_render_image(PrintWindow *pw)
 #pragma GCC diagnostic ignored "-Wunused-but-set-parameter"
 void font_activated_cb(GtkFontChooser *widget, gchar *fontname, gpointer option)
 {
-	option = g_strdup(fontname);
-
-	g_free(fontname);
+	option = fontname;
 
 	gq_gtk_widget_destroy(GTK_WIDGET(widget));
 }
@@ -144,14 +141,10 @@ void font_activated_cb(GtkFontChooser *widget, gchar *fontname, gpointer option)
 
 void font_response_cb(GtkDialog *dialog, int response_id, gpointer option)
 {
-	gchar *font;
-
 	if (response_id == GTK_RESPONSE_OK)
 		{
-		font = gtk_font_chooser_get_font(GTK_FONT_CHOOSER(dialog));
 		g_free(option);
-		option = g_strdup(font);
-		g_free(font);
+		option = gtk_font_chooser_get_font(GTK_FONT_CHOOSER(dialog));
 		}
 
 	gq_gtk_widget_destroy(GTK_WIDGET(dialog));
@@ -436,38 +429,25 @@ gboolean paginate_cb(GtkPrintOperation *, GtkPrintContext *, gpointer data)
 
 gchar *form_image_text(const gchar *template_string, FileData *fd, PrintWindow *pw, gint page_nr, gint total)
 {
-	gchar *text = nullptr;
-	GHashTable *vars;
-	gchar *window_title;
-	gchar *delimiter;
-	gchar *collection_name;
-
 	if (!fd) return nullptr;
 
-	vars = g_hash_table_new_full(g_str_hash, g_str_equal, nullptr, g_free);
+	OsdTemplate vars;
 
-	window_title = g_strdup(gtk_window_get_title(GTK_WINDOW(pw->parent)));
-	delimiter = g_strstr_len(window_title, -1, " - Collection - ");
+	const gchar *window_title = gtk_window_get_title(GTK_WINDOW(pw->parent));
+	gchar *delimiter = g_strstr_len(window_title, -1, " - Collection - ");
 	if (delimiter)
 		{
-		collection_name = g_strndup(window_title, delimiter - window_title);
-		}
-	else
-		{
-		collection_name = nullptr;
-		}
-	g_free(window_title);
-
-	if (collection_name)
-		{
-		osd_template_insert(vars, "collection", collection_name, OSDT_NONE);
+		g_autofree gchar *collection_name = g_strndup(window_title, delimiter - window_title);
+		osd_template_insert(vars, "collection", collection_name);
 		}
 
-	osd_template_insert(vars, "number", g_strdup_printf("%d", page_nr + 1), OSDT_NO_DUP);
-	osd_template_insert(vars, "total", g_strdup_printf("%d", total), OSDT_NO_DUP);
-	osd_template_insert(vars, "name", fd->name, OSDT_NONE);
-	osd_template_insert(vars, "date", text_from_time(fd->date), OSDT_NONE);
-	osd_template_insert(vars, "size", text_from_size_abrev(fd->size), OSDT_FREE);
+	osd_template_insert(vars, "number", std::to_string(page_nr + 1).c_str());
+	osd_template_insert(vars, "total", std::to_string(total).c_str());
+	osd_template_insert(vars, "name", fd->name);
+	osd_template_insert(vars, "date", text_from_time(fd->date));
+
+	g_autofree gchar *size_str = text_from_size_abrev(fd->size);
+	osd_template_insert(vars, "size", size_str);
 
 	if (fd->pixbuf)
 		{
@@ -476,23 +456,20 @@ gchar *form_image_text(const gchar *template_string, FileData *fd, PrintWindow *
 		w = gdk_pixbuf_get_width(fd->pixbuf);
 		h = gdk_pixbuf_get_height(fd->pixbuf);
 
-		osd_template_insert(vars, "width", g_strdup_printf("%d", w), OSDT_NO_DUP);
- 		osd_template_insert(vars, "height", g_strdup_printf("%d", h), OSDT_NO_DUP);
- 		osd_template_insert(vars, "res", g_strdup_printf("%d × %d", w, h), OSDT_FREE);
+		osd_template_insert(vars, "width", std::to_string(w).c_str());
+		osd_template_insert(vars, "height", std::to_string(h).c_str());
+
+		g_autofree gchar *res_str = g_strdup_printf("%d × %d", w, h);
+		osd_template_insert(vars, "res", res_str);
  		}
 	else
 		{
-		osd_template_insert(vars, "width", nullptr, OSDT_NONE);
- 		osd_template_insert(vars, "height", nullptr, OSDT_NONE);
- 		osd_template_insert(vars, "res", nullptr, OSDT_NONE);
+		osd_template_insert(vars, "width", nullptr);
+		osd_template_insert(vars, "height", nullptr);
+		osd_template_insert(vars, "res", nullptr);
 		}
 
-	text = image_osd_mkinfo(template_string, fd, vars);
-	g_hash_table_destroy(vars);
-
-	g_free(collection_name);
-
-	return text;
+	return image_osd_mkinfo(template_string, fd, vars);
 }
 
 gchar *print_get_page_text(const PrintWindow *pw)
@@ -703,35 +680,32 @@ void end_print_cb(GtkPrintOperation *operation, GtkPrintContext *, gpointer data
 	auto pw = static_cast<PrintWindow *>(data);
 	GList *work;
 	GdkPixbuf *pixbuf;
-	gchar *path;
 	GtkPrintSettings *print_settings;
 	GtkPageSetup *page_setup;
 	GError *error = nullptr;
 
 	print_settings = gtk_print_operation_get_print_settings(operation);
-	path = g_build_filename(get_rc_dir(), PRINT_SETTINGS, NULL);
+	g_autofree gchar *print_settings_path = g_build_filename(get_rc_dir(), PRINT_SETTINGS, NULL);
 
-	gtk_print_settings_to_file(print_settings, path, &error);
+	gtk_print_settings_to_file(print_settings, print_settings_path, &error);
 	if (error)
 		{
 		log_printf("Error: Print settings save failed:\n%s", error->message);
 		g_error_free(error);
 		error = nullptr;
 		}
-	g_free(path);
 	g_object_unref(print_settings);
 
 	page_setup = gtk_print_operation_get_default_page_setup(operation);
-	path = g_build_filename(get_rc_dir(), PAGE_SETUP, NULL);
+	g_autofree gchar *page_setup_path = g_build_filename(get_rc_dir(), PAGE_SETUP, NULL);
 
-	gtk_page_setup_to_file(page_setup, path, &error);
+	gtk_page_setup_to_file(page_setup, page_setup_path, &error);
 	if (error)
 		{
 		log_printf("Error: Print page setup save failed:\n%s", error->message);
 		g_error_free(error);
 		error = nullptr;
 		}
-	g_free(path);
 	g_object_unref(page_setup);
 
 	g_free(options->printer.page_text);
@@ -767,10 +741,8 @@ void print_window_new(FileData *, GList *selection, GList *, GtkWidget *parent)
 	GtkWidget *vbox;
 	GtkPrintOperation *operation;
 	GtkPageSetup *page_setup;
-	gchar *uri;
 	const gchar *dir;
 	GError *error = nullptr;
-	gchar *path;
 	GtkPrintSettings *settings;
 
 	auto pw = g_new0(PrintWindow, 1);
@@ -809,12 +781,11 @@ void print_window_new(FileData *, GList *selection, GList *, GtkWidget *parent)
 		dir = g_get_home_dir();
 		}
 
-	uri = g_build_filename("file:/", dir, "geeqie-file.pdf", NULL);
+	g_autofree gchar *uri = g_build_filename("file:/", dir, "geeqie-file.pdf", NULL);
 	gtk_print_settings_set(settings, GTK_PRINT_SETTINGS_OUTPUT_URI, uri);
-	g_free(uri);
 
-	path = g_build_filename(get_rc_dir(), PRINT_SETTINGS, NULL);
-	gtk_print_settings_load_file(settings, path, &error);
+	g_autofree gchar *print_settings_path = g_build_filename(get_rc_dir(), PRINT_SETTINGS, NULL);
+	gtk_print_settings_load_file(settings, print_settings_path, &error);
 	if (error)
 		{
 		log_printf("Error: Printer settings load failed:\n%s", error->message);
@@ -822,11 +793,10 @@ void print_window_new(FileData *, GList *selection, GList *, GtkWidget *parent)
 		error = nullptr;
 		}
 	gtk_print_operation_set_print_settings(operation, settings);
-	g_free(path);
 
 	page_setup = gtk_page_setup_new();
-	path = g_build_filename(get_rc_dir(), PAGE_SETUP, NULL);
-	gtk_page_setup_load_file(page_setup, path, &error);
+	g_autofree gchar *page_setup_path = g_build_filename(get_rc_dir(), PAGE_SETUP, NULL);
+	gtk_page_setup_load_file(page_setup, page_setup_path, &error);
 	if (error)
 		{
 		log_printf("Error: Print page setup load failed:\n%s", error->message);
@@ -834,7 +804,6 @@ void print_window_new(FileData *, GList *selection, GList *, GtkWidget *parent)
 		error = nullptr;
 		}
 	gtk_print_operation_set_default_page_setup(operation, page_setup);
-	g_free(path);
 
 	g_signal_connect (G_OBJECT (operation), "begin-print",
 					G_CALLBACK (begin_print), pw);

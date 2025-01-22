@@ -55,6 +55,9 @@ add_global_arguments('-Wno-overlength-strings', language : 'c')
 # To compile originally-C files as C++
 add_global_arguments('-Wno-error=deprecated-declarations', language : 'cpp')
 
+# To enable debug statements in all files
+add_global_arguments('-include', 'debug.h', language : 'cpp')
+
 # Project requirements
 # code_sources is all human-written geeqie C/C++ code
 code_sources = []
@@ -306,6 +309,44 @@ else
     summary({'exiv2' : ['disabled - image data processed by exiv2:', false]}, section : 'Configuration', bool_yn : true)
 endif
 
+conf_data.set('HAVE_EXR', 0)
+exr_dep = []
+req_version_exr = '>=3.0.0'
+imath_dep = []
+req_version_imath = '>=3.0.0'
+option = get_option('exr')
+if not option.disabled()
+    exr_dep = dependency('OpenEXR', version : req_version_exr, required : get_option('exr'))
+    if exr_dep.found()
+        imath_dep = dependency('Imath', version : req_version_imath, required : get_option('exr'))
+        if imath_dep.found()
+            conf_data.set('HAVE_EXR', 1)
+            summary({'exr' : ['exr files supported:', true]}, section : 'Configuration', bool_yn : true)
+        else
+            summary({'exr' : ['imath ' + req_version_imath + ' not found - exr files supported:', false]}, section : 'Configuration', bool_yn : true)
+        endif
+    else
+        summary({'exr' : ['exr ' + req_version_exr + ' not found - exr files supported:', false]}, section : 'Configuration', bool_yn : true)
+    endif
+else
+    summary({'exr' : ['disabled - exr files supported:', false]}, section : 'Configuration', bool_yn : true)
+endif
+
+conf_data.set('HAVE_FITS', 0)
+fits_dep = []
+option = get_option('fits')
+if not option.disabled()
+    fits_dep = dependency('cfitsio', required: get_option('fits'))
+    if fits_dep.found()
+		conf_data.set('HAVE_FITS', 1)
+		summary({'fits' : ['fits files supported:', true]}, section : 'Configuration', bool_yn : true)
+    else
+        summary({'fits' : ['libcfitsio not found - fits files supported:', false]}, section : 'Configuration', bool_yn : true)
+    endif
+else
+    summary({'fits' : ['disabled - fits files supported:', false]}, section : 'Configuration', bool_yn : true)
+endif
+
 conf_data.set('HAVE_CLUTTER', 0)
 conf_data.set('HAVE_LIBCHAMPLAIN', 0)
 conf_data.set('HAVE_LIBCHAMPLAIN_GTK', 0)
@@ -446,6 +487,15 @@ if not option.disabled()
     endif
 else
     summary({'lua' : ['disabled - lua supported:', false]}, section : 'Configuration', bool_yn : true)
+endif
+
+conf_data.set('HAVE_NPY', 0)
+option = get_option('npy')
+if not option.disabled()
+    conf_data.set('HAVE_NPY', 1)
+    summary({'npy' : ['npy supported:', true]}, section : 'Configuration', bool_yn : true)
+else
+    summary({'npy' : ['npy supported:', false]}, section : 'Configuration', bool_yn : true)
 endif
 
 # Install standard documents
@@ -672,6 +722,14 @@ i18n.merge_file(
     install_dir : join_paths(datadir, 'applications'))
 
 i18n.merge_file(
+    input : 'org.geeqie.cache-maintenance.desktop.in',
+    output : 'org.geeqie.cache-maintenance.desktop',
+    type : 'desktop',
+    po_dir : podir,
+    install : true,
+    install_dir : join_paths(datadir, 'applications'))
+
+i18n.merge_file(
     input : 'org.geeqie.Geeqie.appdata.xml.in',
     output : 'org.geeqie.Geeqie.appdata.xml',
     type : 'xml',
@@ -718,6 +776,7 @@ if option.enabled()
             should_fail = image_name.startswith('fail')
             test_cmd = [image_test_py.full_path(), geeqie_exe.full_path(), image]
             test('Image_ ' + image_name, isolate_test_sh, args: test_cmd, should_fail : should_fail, timeout: 100, suite: ['functional', 'image'])
+
         endforeach
         summary({'Image tests' : ['Test runs:', true]}, section : 'Testing', bool_yn : true)
     else

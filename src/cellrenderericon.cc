@@ -19,6 +19,7 @@
 
 #include "cellrenderericon.h"
 
+#include <algorithm>
 #include <cstddef>
 
 #include <cairo.h>
@@ -435,11 +436,8 @@ gqv_cell_renderer_icon_set_property(GObject		*object,
 		break;
 	case PROP_TEXT:
 		{
-		gchar *text;
-
-		text = cellicon->text;
+		g_autofree gchar *text = cellicon->text;
 		cellicon->text = g_strdup(g_value_get_string(value));
-		g_free(text);
 
 		g_object_notify(object, "text");
 		}
@@ -588,14 +586,14 @@ static void gqv_cell_renderer_icon_get_size(GtkCellRenderer    *cell,
 		pango_layout_get_pixel_extents(layout, nullptr, &rect);
 		g_object_unref(layout);
 
-		calc_width = MAX(calc_width, rect.width);
+		calc_width = std::max(calc_width, rect.width);
 		calc_height += rect.height;
 		}
 
 	if (cellicon->show_marks)
 		{
 		calc_height += TOGGLE_SPACING;
-		calc_width = MAX(calc_width, TOGGLE_SPACING * cellicon->num_marks);
+		calc_width = std::max(calc_width, TOGGLE_SPACING * cellicon->num_marks);
 		}
 
 	calc_width += xpad * 2;
@@ -609,12 +607,12 @@ static void gqv_cell_renderer_icon_get_size(GtkCellRenderer    *cell,
 		if (x_offset)
 			{
 			*x_offset = (xalign * (cell_area->width - calc_width - 2 * xpad));
-			*x_offset = MAX(*x_offset, 0) + xpad;
+			*x_offset = std::max(*x_offset, 0) + xpad;
 			}
 		if (y_offset)
 			{
 			*y_offset = (yalign * (cell_area->height - calc_height - 2 * ypad));
-			*y_offset = MAX(*y_offset, 0) + ypad;
+			*y_offset = std::max(*y_offset, 0) + ypad;
 			}
 		}
 
@@ -754,7 +752,7 @@ static void gqv_cell_renderer_icon_render(GtkCellRenderer *cell,
 				cairo_save (cr);
 
 				cairo_rectangle(cr,
-						pix_rect.x + i * TOGGLE_SPACING + (TOGGLE_WIDTH - TOGGLE_SPACING) / 2.0,
+						pix_rect.x + (i * TOGGLE_SPACING) + ((TOGGLE_WIDTH - TOGGLE_SPACING) / 2.0),
 						pix_rect.y,
 						TOGGLE_WIDTH, TOGGLE_WIDTH);
 				cairo_clip (cr);
@@ -769,19 +767,19 @@ static void gqv_cell_renderer_icon_render(GtkCellRenderer *cell,
 				if (state & GTK_STATE_FLAG_CHECKED)
 					{
 					gtk_render_check(context, cr,
-						pix_rect.x + i * TOGGLE_SPACING + (TOGGLE_WIDTH - TOGGLE_SPACING) / 2.0,
+						pix_rect.x + (i * TOGGLE_SPACING) + ((TOGGLE_WIDTH - TOGGLE_SPACING) / 2.0),
 						pix_rect.y,
 						TOGGLE_WIDTH, TOGGLE_WIDTH);
 					}
 				gtk_render_frame(context, cr,
-					 pix_rect.x + i * TOGGLE_SPACING + (TOGGLE_WIDTH - TOGGLE_SPACING) / 2.0,
+					 pix_rect.x + (i * TOGGLE_SPACING) + ((TOGGLE_WIDTH - TOGGLE_SPACING) / 2.0),
 					 pix_rect.y,
 					 TOGGLE_WIDTH, TOGGLE_WIDTH);
 
 				if (cellicon->focused && gtk_widget_has_focus(widget))
 					{
 					gtk_render_focus(context, cr,
-						pix_rect.x + i * TOGGLE_SPACING + (TOGGLE_WIDTH - TOGGLE_SPACING) / 2.0,
+						pix_rect.x + (i * TOGGLE_SPACING) + ((TOGGLE_WIDTH - TOGGLE_SPACING) / 2.0),
 						pix_rect.y, TOGGLE_WIDTH, TOGGLE_WIDTH);
 					}
 				gtk_style_context_restore(context);

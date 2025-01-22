@@ -21,11 +21,11 @@
 
 #include "pixbuf-renderer.h"
 
+#include <algorithm>
 #include <cmath>
 #include <cstdlib>
 #include <cstring>
 
-#include "debug.h"
 #include "main-defines.h"
 #include "misc.h"
 #include "options.h"
@@ -644,8 +644,8 @@ static gboolean pr_parent_window_resize(PixbufRenderer *pr, gint w, gint h)
 		gint sw = gdk_screen_width() * pr->window_limit_size / 100;
 		gint sh = gdk_screen_height() * pr->window_limit_size / 100;
 
-		if (w > sw) w = sw;
-		if (h > sh) h = sh;
+		w = std::min(w, sw);
+		h = std::min(h, sh);
 		}
 
 	widget = GTK_WIDGET(pr);
@@ -759,15 +759,13 @@ static gboolean pr_scroller_update_cb(gpointer data)
 
 		if (x >= 0)
 			{
-			if (xinc < 0) xinc = 0;
-			if (x < xinc) xinc = x;
-			if (x > xinc) xinc = MIN(xinc + x / PR_SCROLLER_UPDATES_PER_SEC, x);
+			xinc = CLAMP(xinc, 0, x);
+			if (x > xinc) xinc = std::min(xinc + (x / PR_SCROLLER_UPDATES_PER_SEC), x);
 			}
 		else
 			{
-			if (xinc > 0) xinc = 0;
-			if (x > xinc) xinc = x;
-			if (x < xinc) xinc = MAX(xinc + x / PR_SCROLLER_UPDATES_PER_SEC, x);
+			xinc = CLAMP(xinc, x, 0);
+			if (x < xinc) xinc = std::max(xinc + (x / PR_SCROLLER_UPDATES_PER_SEC), x);
 			}
 		}
 
@@ -781,15 +779,13 @@ static gboolean pr_scroller_update_cb(gpointer data)
 
 		if (y >= 0)
 			{
-			if (yinc < 0) yinc = 0;
-			if (y < yinc) yinc = y;
-			if (y > yinc) yinc = MIN(yinc + y / PR_SCROLLER_UPDATES_PER_SEC, y);
+			yinc = CLAMP(yinc, 0, y);
+			if (y > yinc) yinc = std::min(yinc + (y / PR_SCROLLER_UPDATES_PER_SEC), y);
 			}
 		else
 			{
-			if (yinc > 0) yinc = 0;
-			if (y > yinc) yinc = y;
-			if (y < yinc) yinc = MAX(yinc + y / PR_SCROLLER_UPDATES_PER_SEC, y);
+			yinc = CLAMP(yinc, y, 0);
+			if (y < yinc) yinc = std::max(yinc + (y / PR_SCROLLER_UPDATES_PER_SEC), y);
 			}
 		}
 
@@ -836,7 +832,7 @@ static void pr_scroller_start(PixbufRenderer *pr, gint x, gint y)
 		w = gdk_pixbuf_get_width(pixbuf);
 		h = gdk_pixbuf_get_height(pixbuf);
 
-		pr->scroller_overlay = pixbuf_renderer_overlay_add(pr, pixbuf, x - w / 2, y - h / 2, OVL_NORMAL);
+		pr->scroller_overlay = pixbuf_renderer_overlay_add(pr, pixbuf, x - (w / 2), y - (h / 2), OVL_NORMAL);
 		g_object_unref(pixbuf);
 		}
 
@@ -941,7 +937,7 @@ static SourceTile *pr_source_tile_new(PixbufRenderer *pr, gint x, gint y)
 
 	g_return_val_if_fail(pr->source_tile_width >= 1 && pr->source_tile_height >= 1, NULL);
 
-	if (pr->source_tiles_cache_size < 4) pr->source_tiles_cache_size = 4;
+	pr->source_tiles_cache_size = std::max(pr->source_tiles_cache_size, 4);
 
 	count = g_list_length(pr->source_tiles);
 	if (count >= pr->source_tiles_cache_size)
@@ -1053,10 +1049,10 @@ GList *pr_source_tile_compute_region(PixbufRenderer *pr, gint x, gint y, gint w,
 	gint sx;
 	gint sy;
 
-	if (x < 0) x = 0;
-	if (y < 0) y = 0;
-	if (w > pr->image_width) w = pr->image_width;
-	if (h > pr->image_height) h = pr->image_height;
+	x = std::max(x, 0);
+	y = std::max(y, 0);
+	w = std::min(w, pr->image_width);
+	h = std::min(h, pr->image_height);
 
 	sx = ROUND_DOWN(x, pr->source_tile_width);
 	sy = ROUND_DOWN(y, pr->source_tile_height);
@@ -1130,10 +1126,8 @@ void pixbuf_renderer_set_tiles(PixbufRenderer *pr, gint width, gint height,
 
 	pr_source_tile_unset(pr);
 
-	if (cache_size < 4) cache_size = 4;
-
 	pr->source_tiles_enabled = TRUE;
-	pr->source_tiles_cache_size = cache_size;
+	pr->source_tiles_cache_size = std::max(cache_size, 4);
 	pr->source_tile_width = tile_width;
 	pr->source_tile_height = tile_height;
 
@@ -1643,14 +1637,14 @@ static gboolean pr_zoom_clamp(PixbufRenderer *pr, gdouble zoom,
 				scale = static_cast<gdouble>(max_h) / h / pr->aspect_ratio;
 				h = max_h;
 				w = w * scale + 0.5;
-				if (w > max_w) w = max_w;
+				w = std::min(w, max_w);
 				}
 			else
 				{
 				scale = static_cast<gdouble>(max_w) / w;
 				w = max_w;
 				h = h * scale * pr->aspect_ratio + 0.5;
-				if (h > max_h) h = max_h;
+				h = std::min(h, max_h);
 				}
 
 			if (pr->autofit_limit)
@@ -1672,8 +1666,8 @@ static gboolean pr_zoom_clamp(PixbufRenderer *pr, gdouble zoom,
 					}
 				}
 
-			if (w < 1) w = 1;
-			if (h < 1) h = 1;
+			w = std::max(w, 1);
+			h = std::max(h, 1);
 			}
 		else
 			{
@@ -1736,19 +1730,23 @@ static void pr_zoom_sync(PixbufRenderer *pr, gdouble zoom,
 	(void) pr_size_clamp(pr);
 	(void) pr_parent_window_resize(pr, pr->width, pr->height);
 
+/* NOLINT(bugprone-integer-division) is required due to
+ * https://github.com/BestImageViewer/geeqie/issues/1588
+ * The reason is not known.
+ */
 	if (force && new_z)
 		{
 		switch (pr->scroll_reset)
 			{
 			case ScrollReset::NOCHANGE:
 				/* maintain old scroll position */
-				pr->x_scroll = (static_cast<gdouble>(pr->image_width) * old_center_x * pr->scale) - pr->vis_width / 2.0;
-				pr->y_scroll = (static_cast<gdouble>(pr->image_height) * old_center_y * pr->scale * pr->aspect_ratio) - pr->vis_height / 2.0;
+				pr->x_scroll = (static_cast<gdouble>(pr->image_width) * old_center_x * pr->scale) - pr->vis_width / 2; // NOLINT(bugprone-integer-division)
+				pr->y_scroll = (static_cast<gdouble>(pr->image_height) * old_center_y * pr->scale * pr->aspect_ratio) - pr->vis_height / 2; // NOLINT(bugprone-integer-division)
 				break;
 			case ScrollReset::CENTER:
 				/* center new image */
-				pr->x_scroll = (static_cast<gdouble>(pr->image_width) / 2.0 * pr->scale) - pr->vis_width / 2.0;
-				pr->y_scroll = (static_cast<gdouble>(pr->image_height) / 2.0 * pr->scale * pr->aspect_ratio) - pr->vis_height / 2.0;
+				pr->x_scroll = (static_cast<gdouble>(pr->image_width) / 2 * pr->scale) - pr->vis_width / 2; // NOLINT(bugprone-integer-division)
+				pr->y_scroll = (static_cast<gdouble>(pr->image_height) / 2 * pr->scale * pr->aspect_ratio) - pr->vis_height / 2; // NOLINT(bugprone-integer-division)
 				break;
 			case ScrollReset::TOPLEFT:
 			default:
@@ -1768,8 +1766,8 @@ static void pr_zoom_sync(PixbufRenderer *pr, gdouble zoom,
 			}
 		else
 			{
-			pr->x_scroll = old_cx / old_scale * pr->scale - (pr->vis_width / 2.0);
-			pr->y_scroll = old_cy / old_scale * pr->scale * pr->aspect_ratio - (pr->vis_height / 2.0);
+			pr->x_scroll = old_cx / old_scale * pr->scale - (pr->vis_width / 2); // NOLINT(bugprone-integer-division)
+			pr->y_scroll = old_cy / old_scale * pr->scale * pr->aspect_ratio - (pr->vis_height / 2); // NOLINT(bugprone-integer-division)
 			}
 		}
 
@@ -1865,7 +1863,7 @@ static void pr_size_sync(PixbufRenderer *pr, gint new_width, gint new_height)
 				w = gdk_pixbuf_get_width(pixbuf);
 				h = gdk_pixbuf_get_height(pixbuf);
 				pixbuf_renderer_overlay_set(pr, pr->scroller_overlay, pixbuf,
-							    pr->scroller_x - w / 2, pr->scroller_y - h / 2);
+							    pr->scroller_x - (w / 2), pr->scroller_y - (h / 2));
 				}
 			}
 		}
@@ -2263,8 +2261,8 @@ static void pr_create_anaglyph_gray(GdkPixbuf *pixbuf, GdkPixbuf *right, gint x,
 		dp = dpi + (i * drs);
 		for (j = 0; j < w; j++)
 			{
-			guchar g1 = dp[0] * gc[0] + dp[1] * gc[1] + dp[2] * gc[2];
-			guchar g2 = sp[0] * gc[0] + sp[1] * gc[1] + sp[2] * gc[2];
+			guchar g1 = (dp[0] * gc[0]) + (dp[1] * gc[1]) + (dp[2] * gc[2]);
+			guchar g2 = (sp[0] * gc[0]) + (sp[1] * gc[1]) + (sp[2] * gc[2]);
 			switch(mode)
 				{
 				case RC:
@@ -2352,8 +2350,7 @@ static void pr_create_anaglyph_dubois(GdkPixbuf *pixbuf, GdkPixbuf *right, gint 
 				{
 				const double *m = pr_dubois_matrix[k];
 				res[k] = sp[0] * m[0] + sp[1] * m[1] + sp[2] * m[2] + dp[0] * m[3] + dp[1] * m[4] + dp[2] * m[5];
-				if (res[k] < 0.0) res[k] = 0;
-				if (res[k] > 255.0) res[k] = 255.0;
+				res[k] = CLAMP(res[k], 0.0, 255.0);
 				}
 			dp[0] = res[0];
 			dp[1] = res[1];

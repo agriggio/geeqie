@@ -30,7 +30,6 @@
 #include <glib-object.h>
 
 #include "compat.h"
-#include "debug.h"
 #include "image-load.h"
 #include "image.h"
 #include "intl.h"
@@ -257,7 +256,7 @@ std::vector<ScreenData> fullscreen_prefs_list()
 	for (gint j = -1; j < monitors; j++)
 		{
 		GdkRectangle rect;
-		gchar *subname;
+		g_autofree gchar *subname = nullptr;
 
 		if (j < 0)
 			{
@@ -285,8 +284,6 @@ std::vector<ScreenData> fullscreen_prefs_list()
 		        sd.number, sd.description.c_str(), sd.geometry.x, sd.geometry.y, sd.geometry.width, sd.geometry.height);
 
 		list.push_back(sd);
-
-		g_free(subname);
 		}
 
 	return list;
@@ -391,8 +388,24 @@ void fullscreen_prefs_selection_add(GtkListStore *store, const gchar *text, gint
 					 FS_MENU_COLUMN_VALUE, value, -1);
 }
 
-} // namespace
+gint get_monitor_index(GdkDisplay *display, GdkMonitor *target_monitor)
+{
+	gint num_monitors = gdk_display_get_n_monitors(display);
 
+	for (gint i = 0; i < num_monitors; i++)
+		{
+		GdkMonitor *monitor = gdk_display_get_monitor(display, i);
+
+		if (monitor == target_monitor)
+			{
+			return i;
+			}
+		}
+
+	return -1; // Monitor not found
+}
+
+} // namespace
 
 /*
  *----------------------------------------------------------------------------
@@ -404,8 +417,10 @@ FullScreenData *fullscreen_start(GtkWidget *window, ImageWindow *imd,
 				 FullScreenData::StopFunc stop_func, gpointer stop_data)
 {
 	FullScreenData *fs;
-	GdkScreen *screen;
+	GdkDisplay *display;
 	GdkGeometry geometry;
+	GdkMonitor *monitor;
+	GdkScreen *screen;
 
 	if (!window || !imd) return nullptr;
 
@@ -473,14 +488,25 @@ FullScreenData *fullscreen_start(GtkWidget *window, ImageWindow *imd,
 			gdk_window_set_fullscreen_mode(gdkwin, GDK_FULLSCREEN_ON_ALL_MONITORS);
 		}
 
-	/* make window fullscreen -- let Gtk do it's job, don't screw it in any way */
-	gtk_window_fullscreen(GTK_WINDOW(fs->window));
+	auto monitor_number = options->fullscreen.screen;
 
-	/* move it to requested screen */
-	if (options->fullscreen.screen >= 0)
+	if (monitor_number < 0)
 		{
-		gtk_window_set_screen(GTK_WINDOW(fs->window), screen);
+		monitor_number = 0;
 		}
+	else if (monitor_number == 1)
+		{
+		display = gtk_widget_get_display(window);
+		monitor = gdk_display_get_monitor_at_window(display, gtk_widget_get_window(window));
+
+		monitor_number = get_monitor_index(display, monitor);
+		}
+	else if (monitor_number >= 100)
+		{
+		monitor_number = (monitor_number % 100) - 1;
+		}
+
+	gq_gtk_window_fullscreen_on_monitor(GTK_WINDOW(fs->window), screen, monitor_number);
 
 	fs->imd = image_new(FALSE);
 
@@ -531,7 +557,11 @@ FullScreenData *fullscreen_start(GtkWidget *window, ImageWindow *imd,
 		{
 		if (options->hide_window_in_fullscreen)
 			{
-			gtk_widget_hide(fs->normal_window);
+			/** @FIXME Wayland corrupts the size and position of the window when restoring it */
+			if (!g_getenv("WAYLAND_DISPLAY"))
+				{
+				gtk_widget_hide(fs->normal_window);
+				}
 			}
 		image_change_fd(fs->normal_imd, nullptr, image_zoom_get(fs->normal_imd));
 		}
@@ -559,7 +589,11 @@ void fullscreen_stop(FullScreenData *fs)
 		image_move_from_image(fs->normal_imd, fs->imd);
 		if (options->hide_window_in_fullscreen)
 			{
-			gtk_widget_show(fs->normal_window);
+			/** @FIXME Wayland corrupts the size and position of the window when restoring it */
+			if (!g_getenv("WAYLAND_DISPLAY"))
+				{
+				gtk_widget_show(fs->normal_window);
+				}
 			}
 		if (options->stereo.enable_fsmode)
 			{

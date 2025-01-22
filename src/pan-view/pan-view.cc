@@ -36,7 +36,6 @@
 #include "cache-loader.h"
 #include "cache.h"
 #include "compat.h"
-#include "debug.h"
 #include "dnd.h"
 #include "editors.h"
 #include "exif.h"
@@ -144,7 +143,7 @@ static void pan_window_dnd_init(PanWindow *pw);
  *
  * See also @link hard_coded_window_keys @endlink
  **/
-hard_coded_window_keys pan_view_window_keys[] = {
+static hard_coded_window_keys pan_view_window_keys[] = {
 	{GDK_CONTROL_MASK, 'C', N_("Copy")},
 	{GDK_CONTROL_MASK, 'M', N_("Move")},
 	{GDK_CONTROL_MASK, 'R', N_("Rename")},
@@ -507,8 +506,6 @@ static void pan_window_message(PanWindow *pw, const gchar *text)
 	GList *work;
 	gint count = 0;
 	gint64 size = 0;
-	gchar *ss;
-	gchar *buf;
 
 	if (text)
 		{
@@ -553,21 +550,17 @@ static void pan_window_message(PanWindow *pw, const gchar *text)
 			}
 		}
 
-	ss = text_from_size_abrev(size);
-	buf = g_strdup_printf(_("%d images, %s"), count, ss);
-	g_free(ss);
+	g_autofree gchar *ss = text_from_size_abrev(size);
+	g_autofree gchar *buf = g_strdup_printf(_("%d images, %s"), count, ss);
 	gtk_label_set_text(GTK_LABEL(pw->label_message), buf);
-	g_free(buf);
 }
 
 static void pan_warning_folder(const gchar *path, GtkWidget *parent)
 {
-	gchar *message;
+	g_autofree gchar *message = g_strdup_printf(_("The pan view does not support the folder \"%s\"."), path);
 
-	message = g_strdup_printf(_("The pan view does not support the folder \"%s\"."), path);
 	warning_dialog(_("Folder not supported"), message,
-		      GQ_ICON_DIALOG_INFO, parent);
-	g_free(message);
+	               GQ_ICON_DIALOG_INFO, parent);
 }
 
 static void pan_window_zoom_limit(PanWindow *pw)
@@ -802,14 +795,14 @@ static void pan_grid_build(PanWindow *pw, gint width, gint height, gint grid_siz
 
 	if (l < 1) return;
 
-	col = static_cast<gint>(sqrt(static_cast<gdouble>(l) / grid_size) * width / height + 0.999);
-	col = CLAMP(col, 1, l / grid_size + 1);
+	col = static_cast<gint>((sqrt(static_cast<gdouble>(l) / grid_size) * width / height) + 0.999);
+	col = CLAMP(col, 1, (l / grid_size) + 1);
 	row = static_cast<gint>(static_cast<gdouble>(l) / grid_size / col);
-	if (row < 1) row = 1;
+	row = std::max(row, 1);
 
 	/* limit minimum size of grid so that a tile will always fit regardless of position */
-	cw = MAX((gint)ceil((gdouble)width / col), PAN_TILE_SIZE * 2);
-	ch = MAX((gint)ceil((gdouble)height / row), PAN_TILE_SIZE * 2);
+	cw = std::max<gint>(ceil(static_cast<gdouble>(width) / col), PAN_TILE_SIZE * 2);
+	ch = std::max<gint>(ceil(static_cast<gdouble>(height) / row), PAN_TILE_SIZE * 2);
 
 	row = row * 2 - 1;
 	col = col * 2 - 1;
@@ -1043,8 +1036,8 @@ void pan_layout_resize(PanWindow *pw)
 		pi = static_cast<PanItem *>(work->data);
 		work = work->next;
 
-		if (width < pi->x + pi->width) width = pi->x + pi->width;
-		if (height < pi->y + pi->height) height = pi->y + pi->height;
+		width = std::max(width, pi->x + pi->width);
+		height = std::max(height, pi->y + pi->height);
 		}
 	work = pw->list_static;
 	while (work)
@@ -1054,15 +1047,15 @@ void pan_layout_resize(PanWindow *pw)
 		pi = static_cast<PanItem *>(work->data);
 		work = work->next;
 
-		if (width < pi->x + pi->width) width = pi->x + pi->width;
-		if (height < pi->y + pi->height) height = pi->y + pi->height;
+		width = std::max(width, pi->x + pi->width);
+		height = std::max(height, pi->y + pi->height);
 		}
 
 	width += PAN_BOX_BORDER * 2;
 	height += PAN_BOX_BORDER * 2;
 
 	pr = PIXBUF_RENDERER(pw->imd->pr);
-	if (width < pr->window_width) width = pr->window_width;
+	width = std::max(width, pr->window_width);
 	if (height < pr->window_width) height = pr->window_height;
 
 	pixbuf_renderer_set_tiles_size(PIXBUF_RENDERER(pw->imd->pr), width, height);
@@ -1098,12 +1091,9 @@ static gint pan_layout_update_idle_cb(gpointer data)
 				}
 			else if (pw->cache_tick > 9)
 				{
-				gchar *buf;
-
-				buf = g_strdup_printf("%s %d / %d", _("Reading image data..."),
-						      pw->cache_count, pw->cache_total);
+				g_autofree gchar *buf = g_strdup_printf("%s %d / %d", _("Reading image data..."),
+				                                        pw->cache_count, pw->cache_total);
 				pan_window_message(pw, buf);
-				g_free(buf);
 
 				pw->cache_tick = 0;
 				}
@@ -1232,13 +1222,13 @@ static gboolean pan_window_key_press_cb(GtkWidget *widget, GdkEventKey *event, g
 				y += 1;
 				break;
 			case GDK_KEY_Page_Up: case GDK_KEY_KP_Page_Up:
-				pixbuf_renderer_scroll(pr, 0, 0 - pr->vis_height / 2);
+				pixbuf_renderer_scroll(pr, 0, 0 - (pr->vis_height / 2));
 				break;
 			case GDK_KEY_Page_Down: case GDK_KEY_KP_Page_Down:
 				pixbuf_renderer_scroll(pr, 0, pr->vis_height / 2);
 				break;
 			case GDK_KEY_Home: case GDK_KEY_KP_Home:
-				pixbuf_renderer_scroll(pr, 0 - pr->vis_width / 2, 0);
+				pixbuf_renderer_scroll(pr, 0 - (pr->vis_width / 2), 0);
 				break;
 			case GDK_KEY_End: case GDK_KEY_KP_End:
 				pixbuf_renderer_scroll(pr, pr->vis_width / 2, 0);
@@ -1401,7 +1391,6 @@ static gboolean pan_window_key_press_cb(GtkWidget *widget, GdkEventKey *event, g
 static void pan_info_add_exif(PanTextAlignment &ta, FileData *fd)
 {
 	GList *exif_list;
-	gchar *text;
 	gchar *title;
 	gchar *key;
 
@@ -1415,13 +1404,11 @@ static void pan_info_add_exif(PanTextAlignment &ta, FileData *fd)
 		key = static_cast<gchar *>(exif_list->data);
 		exif_list = exif_list->next;
 
-		text = metadata_read_string(fd, key, METADATA_FORMATTED);
+		g_autofree gchar *text = metadata_read_string(fd, key, METADATA_FORMATTED);
 		if (text && text[0] != '\0')
 			{
 			ta.add(title, text);
 			}
-
-		g_free(text);
 		}
 
 	g_list_free_full(exif_list, g_free);
@@ -1433,15 +1420,13 @@ static void pan_info_calc_text_alignment(PanWindow *pw, PanItem *pbox, FileData 
 
 	ta.add(_("Filename:"), fd->name);
 
-	gchar *buf = remove_level_from_path(fd->path);
-	ta.add(_("Location:"), buf);
-	g_free(buf);
+	g_autofree gchar *location_buf = remove_level_from_path(fd->path);
+	ta.add(_("Location:"), location_buf);
 
 	ta.add(_("Date:"), text_from_time(fd->date));
 
-	buf = text_from_size(fd->size);
-	ta.add(_("Size:"), buf);
-	g_free(buf);
+	g_autofree gchar *size_buf = text_from_size(fd->size);
+	ta.add(_("Size:"), size_buf);
 
 	if (pw->info_includes_exif)
 		{
@@ -1524,8 +1509,8 @@ void pan_info_update(PanWindow *pw, PanItem *pi)
 					break;
 				}
 
-			iw = MAX(1, iw * scale / 100);
-			ih = MAX(1, ih * scale / 100);
+			iw = std::max(1, iw * scale / 100);
+			ih = std::max(1, ih * scale / 100);
 
 			pbox = pan_item_box_new(pw, nullptr, pbox->x, pbox->y + pbox->height + 8, 10, 10,
 						PAN_POPUP_BORDER, PAN_POPUP_COLOR, PAN_POPUP_BORDER_COLOR);
@@ -1689,11 +1674,9 @@ static void pan_fullscreen_toggle(PanWindow *pw, gboolean force_off)
 static void pan_window_image_zoom_cb(PixbufRenderer *, gdouble, gpointer data)
 {
 	auto pw = static_cast<PanWindow *>(data);
-	gchar *text;
 
-	text = image_zoom_get_as_text(pw->imd);
+	g_autofree gchar *text = image_zoom_get_as_text(pw->imd);
 	gtk_label_set_text(GTK_LABEL(pw->label_zoom), text);
-	g_free(text);
 }
 
 static void pan_window_image_scroll_notify_cb(PixbufRenderer *pr, gpointer data)
@@ -1714,7 +1697,7 @@ static void pan_window_image_scroll_notify_cb(PixbufRenderer *pr, gpointer data)
 	gtk_adjustment_set_page_increment(adj, gtk_adjustment_get_page_size(adj) / 2.0);
 	gtk_adjustment_set_step_increment(adj, 48.0 / pr->scale);
 	gtk_adjustment_set_lower(adj, 0.0);
-	gtk_adjustment_set_upper(adj, MAX((gdouble)width, 1.0));
+	gtk_adjustment_set_upper(adj, std::max<gdouble>(width, 1.0));
 	gtk_adjustment_set_value(adj, static_cast<gdouble>(rect.x));
 
 	pref_signal_block_data(pw->scrollbar_h, pw);
@@ -1725,7 +1708,7 @@ static void pan_window_image_scroll_notify_cb(PixbufRenderer *pr, gpointer data)
 	gtk_adjustment_set_page_increment(adj, gtk_adjustment_get_page_size(adj) / 2.0);
 	gtk_adjustment_set_step_increment(adj, 48.0 / pr->scale);
 	gtk_adjustment_set_lower(adj, 0.0);
-	gtk_adjustment_set_upper(adj, MAX((gdouble)height, 1.0));
+	gtk_adjustment_set_upper(adj, std::max<gdouble>(height, 1.0));
 	gtk_adjustment_set_value(adj, static_cast<gdouble>(rect.y));
 
 	pref_signal_block_data(pw->scrollbar_v, pw);
@@ -1781,27 +1764,23 @@ static void pan_window_layout_size_cb(GtkWidget *combo, gpointer data)
 static void pan_window_entry_activate_cb(const gchar *new_text, gpointer data)
 {
 	auto pw = static_cast<PanWindow *>(data);
-	gchar *path;
 
-	path = remove_trailing_slash(new_text);
+	g_autofree gchar *path = remove_trailing_slash(new_text);
 	parse_out_relatives(path);
 
 	if (!isdir(path))
 		{
 		warning_dialog(_("Folder not found"),
-			       _("The entered path is not a folder"),
-			       GQ_ICON_DIALOG_WARNING, pw->path_entry);
-		}
-	else
-		{
-		FileData *dir_fd = file_data_new_dir(path);
-		tab_completion_append_to_history(pw->path_entry, path);
-
-		pan_layout_set_fd(pw, dir_fd);
-		file_data_unref(dir_fd);
+		               _("The entered path is not a folder"),
+		               GQ_ICON_DIALOG_WARNING, pw->path_entry);
+		return;
 		}
 
-	g_free(path);
+	FileData *dir_fd = file_data_new_dir(path);
+	tab_completion_append_to_history(pw->path_entry, path);
+
+	pan_layout_set_fd(pw, dir_fd);
+	file_data_unref(dir_fd);
 }
 
 static void pan_window_close(PanWindow *pw)

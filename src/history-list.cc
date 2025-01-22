@@ -23,7 +23,6 @@
 #include <cstdio>
 #include <cstring>
 
-#include "debug.h"
 #include "intl.h"
 #include "options.h"
 #include "secure-save.h"
@@ -34,10 +33,8 @@ namespace
 
 gint dirname_compare(gconstpointer data, gconstpointer user_data)
 {
-	gchar *dirname = g_path_get_dirname(static_cast<const gchar *>(data));
-	int result = g_strcmp0(dirname, static_cast<const gchar *>(user_data));
-	g_free(dirname);
-	return result;
+	g_autofree gchar *dirname = g_path_get_dirname(static_cast<const gchar *>(data));
+	return g_strcmp0(dirname, static_cast<const gchar *>(user_data));
 }
 
 } // namespace
@@ -240,21 +237,17 @@ static gchar *quoted_from_text(const gchar *text)
 
 gboolean history_list_load(const gchar *path)
 {
-	FILE *f;
-	gchar *key = nullptr;
+	g_autofree gchar *key = nullptr;
 	gchar s_buf[1024];
-	gchar *pathl;
 
-	pathl = path_from_utf8(path);
-	f = fopen(pathl, "r");
-	g_free(pathl);
+	g_autofree gchar *pathl = path_from_utf8(path);
+	g_autoptr(FILE) f = fopen(pathl, "r");
 	if (!f) return FALSE;
 
 	/* first line must start with History comment */
 	if (!fgets(s_buf, sizeof(s_buf), f) ||
 	    strncmp(s_buf, "#History", 8) != 0)
 		{
-		fclose(f);
 		return FALSE;
 		}
 
@@ -275,20 +268,13 @@ gboolean history_list_load(const gchar *path)
 			}
 		else
 			{
-			gchar *value;
-
-			value = quoted_from_text(s_buf);
+			g_autofree gchar *value = quoted_from_text(s_buf);
 			if (value && key)
 				{
 				history_list_add_to_key(key, value, 0);
 				}
-			g_free(value);
 			}
 		}
-
-	fclose(f);
-
-	g_free(key);
 
 	return TRUE;
 }
@@ -297,12 +283,10 @@ gboolean history_list_save(const gchar *path)
 {
 	SecureSaveInfo *ssi;
 	GList *list;
-	gchar *pathl;
 	gint list_count;
 
-	pathl = path_from_utf8(path);
+	g_autofree gchar *pathl = path_from_utf8(path);
 	ssi = secure_open(pathl);
-	g_free(pathl);
 	if (!ssi)
 		{
 		log_printf(_("Unable to write history lists to: %s\n"), path);
@@ -560,7 +544,6 @@ static void update_recent_viewed_folder_image_list(const gchar *path)
 {
 	HistoryData *hd;
 	GList *work;
-	gchar *image_dir = nullptr;
 
 	if (options->recent_folder_image_list_maxsize == 0)
 		{
@@ -576,10 +559,8 @@ static void update_recent_viewed_folder_image_list(const gchar *path)
 		history_list = g_list_prepend(history_list, hd);
 		}
 
-	image_dir = g_path_get_dirname(path);
+	g_autofree gchar *image_dir = g_path_get_dirname(path);
 	work = g_list_find_custom(hd->list, image_dir, dirname_compare);
-	g_free(image_dir);
-
 	if (work)
 		{
 		g_free(work->data);

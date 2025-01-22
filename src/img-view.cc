@@ -21,6 +21,7 @@
 
 #include "img-view.h"
 
+#include <algorithm>
 #include <array>
 
 #include <gdk/gdk.h>
@@ -31,7 +32,6 @@
 #include "collect-io.h"
 #include "collect.h"
 #include "compat.h"
-#include "debug.h"
 #include "dnd.h"
 #include "editors.h"
 #include "filedata.h"
@@ -95,7 +95,7 @@ static void view_window_notify_cb(FileData *fd, NotifyType type, gpointer data);
  *
  * See also @link hard_coded_window_keys @endlink
  **/
-hard_coded_window_keys image_window_keys[] = {
+static hard_coded_window_keys image_window_keys[] = {
 	{GDK_CONTROL_MASK, 'C', N_("Copy")},
 	{GDK_CONTROL_MASK, 'M', N_("Move")},
 	{GDK_CONTROL_MASK, 'R', N_("Rename")},
@@ -266,24 +266,7 @@ static void view_list_step(ViewWindow *vw, gboolean next)
 		}
 	else
 		{
-		gboolean found = FALSE;
-
-		work = vw->list;
-		while (work && !found)
-			{
-			FileData *temp;
-
-			temp = static_cast<FileData *>(work->data);
-
-			if (fd == temp)
-				{
-				found = TRUE;
-				}
-			else
-				{
-				work = work->next;
-				}
-			}
+		work = g_list_find(vw->list, fd);
 		}
 	if (!work) return;
 
@@ -659,7 +642,6 @@ static void button_cb(ImageWindow *imd, GdkEventButton *event, gpointer data)
 {
 	auto vw = static_cast<ViewWindow *>(data);
 	GtkWidget *menu;
-	gchar *dest_dir;
 	LayoutWindow *lw_new;
 
 	switch (event->button)
@@ -667,12 +649,11 @@ static void button_cb(ImageWindow *imd, GdkEventButton *event, gpointer data)
 		case MOUSE_BUTTON_LEFT:
 			if (options->image_l_click_archive && imd->image_fd->format_class == FORMAT_CLASS_ARCHIVE)
 				{
-				dest_dir = open_archive(imd->image_fd);
+				g_autofree gchar *dest_dir = open_archive(imd->image_fd);
 				if (dest_dir)
 					{
 					lw_new = layout_new_from_default();
 					layout_set_path(lw_new, dest_dir);
-					g_free(dest_dir);
 					}
 				else
 					{
@@ -820,27 +801,15 @@ static void view_slideshow_prev(ViewWindow *vw)
 static void view_slideshow_stop_func(SlideShowData *, gpointer data)
 {
 	auto vw = static_cast<ViewWindow *>(data);
-	GList *work;
-	FileData *fd;
 
 	vw->ss = nullptr;
 
-	work = vw->list;
-	fd = image_get_fd(view_window_active_image(vw));
-	while (work)
-		{
-		FileData *temp;
+	FileData *fd = image_get_fd(view_window_active_image(vw));
 
-		temp = static_cast<FileData *>(work->data);
-		if (fd == temp)
-			{
-			vw->list_pointer = work;
-			work = nullptr;
-			}
-		else
-			{
-			work = work->next;
-			}
+	GList *work = g_list_find(vw->list, fd);
+	if (work)
+		{
+		vw->list_pointer = work;
 		}
 }
 
@@ -996,8 +965,8 @@ static ViewWindow *real_view_window_new(FileData *fd, GList *list, CollectionDat
 		gint mw = gdk_screen_width() * options->image.max_window_size / 100;
 		gint mh = gdk_screen_height() * options->image.max_window_size / 100;
 
-		if (w > mw) w = mw;
-		if (h > mh) h = mh;
+		w = std::min(w, mw);
+		h = std::min(h, mh);
 		}
 
 	gtk_window_set_default_size(GTK_WINDOW(vw->window), w, h);

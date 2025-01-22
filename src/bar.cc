@@ -21,7 +21,8 @@
 
 #include "bar.h"
 
-#include <cstring>
+#include <algorithm>
+#include <string>
 
 #include <glib-object.h>
 #include <pango/pango.h>
@@ -29,7 +30,6 @@
 #include <config.h>
 
 #include "compat.h"
-#include "debug.h"
 #include "filedata.h"
 #include "intl.h"
 #include "layout.h"
@@ -253,7 +253,7 @@ static void bar_expander_move(GtkWidget *, gpointer data, gboolean up, gboolean 
 	if (single_step)
 		{
 		pos = up ? (pos - 1) : (pos + 1);
-		if (pos < 0) pos = 0;
+		pos = std::max(pos, 0);
 		}
 	else
 		{
@@ -292,7 +292,7 @@ static void height_spin_changed_cb(GtkSpinButton *spin, gpointer data)
 
 static void height_spin_key_press_cb(GtkEventControllerKey *, gint keyval, guint, GdkModifierType, gpointer data)
 {
-	if ((keyval == GDK_KEY_Return || keyval == GDK_KEY_Escape))
+	if ((keyval == GDK_KEY_Return || keyval == GDK_KEY_KP_Enter || keyval == GDK_KEY_Escape))
 		{
 		gq_gtk_widget_destroy(GTK_WIDGET(data));
 		}
@@ -699,14 +699,12 @@ void bar_add(GtkWidget *bar, GtkWidget *pane)
 
 void bar_populate_default(GtkWidget *)
 {
-	const gchar *populate_id[] = {"histogram", "title", "keywords", "comment", "rating", "exif", nullptr};
-	const gchar **id = populate_id;
+	const gchar *populate_id[] = {"histogram", "title", "keywords", "comment", "rating", "exif"};
 
-	while (*id)
+	for (const gchar *id : populate_id)
 		{
-		const gchar *config = bar_pane_get_default_config(*id);
+		const gchar *config = bar_pane_get_default_config(id);
 		if (config) load_config_from_buf(config, strlen(config), FALSE);
-		id++;
 		}
 }
 
@@ -830,8 +828,7 @@ GtkWidget *bar_update_from_config(GtkWidget *bar, const gchar **attribute_names,
 		if (READ_BOOL_FULL("enabled", enabled)) continue;
 		if (READ_INT_FULL("width", width)) continue;
 
-
-		log_printf("unknown attribute %s = %s\n", option, value);
+		config_file_error((std::string("Unknown attribute: ") + option + " = " + value).c_str());
 		}
 
 	if (startup)

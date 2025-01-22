@@ -21,7 +21,7 @@
 
 #include "bar-sort.h"
 
-#include <cstring>
+#include <string>
 
 #include <gdk/gdk.h>
 #include <glib-object.h>
@@ -29,7 +29,6 @@
 #include "collect-io.h"
 #include "collect.h"
 #include "compat.h"
-#include "debug.h"
 #include "editors.h"
 #include "filedata.h"
 #include "history-list.h"
@@ -110,7 +109,7 @@ static void bar_sort_collection_list_build(GtkWidget *bookmarks)
 	while (work)
 		{
 		FileData *fd;
-		gchar *name;
+		g_autofree gchar *name = nullptr;
 
 		fd = static_cast<FileData *>(work->data);
 		work = work->next;
@@ -124,7 +123,6 @@ static void bar_sort_collection_list_build(GtkWidget *bookmarks)
 			name = g_strdup(fd->name);
 			}
 		bookmark_list_add(bookmarks, name, fd->path);
-		g_free(name);
 		}
 
 	filelist_free(list);
@@ -494,24 +492,21 @@ static void bar_sort_add_ok_cb(FileDialog *fd, gpointer data)
 		}
 	else
 		{
-		gchar *path;
-		gboolean has_extension;
-		auto filename = const_cast<gchar *>(name);
-
 		if (empty_name) return;
 
-		has_extension = file_extension_match(name, GQ_COLLECTION_EXT);
+		g_autoptr(GString) filename = g_string_new(name);
+
+		const gboolean has_extension = file_extension_match(name, GQ_COLLECTION_EXT);
 		if (!has_extension)
 			{
-			filename = g_strconcat(name, GQ_COLLECTION_EXT, NULL);
+			filename = g_string_append(filename, GQ_COLLECTION_EXT);
 			}
 
-		path = g_build_filename(get_collections_dir(), filename, NULL);
+		g_autofree gchar *path = g_build_filename(get_collections_dir(), filename->str, NULL);
 		if (isfile(path))
 			{
-			gchar *text = g_strdup_printf(_("The collection:\n%s\nalready exists."), filename);
+			g_autofree gchar *text = g_strdup_printf(_("The collection:\n%s\nalready exists."), filename->str);
 			file_util_warning_dialog(_("Collection exists"), text, GQ_ICON_DIALOG_INFO, nullptr);
-			g_free(text);
 			}
 		else
 			{
@@ -524,16 +519,12 @@ static void bar_sort_add_ok_cb(FileDialog *fd, gpointer data)
 				}
 			else
 				{
-				gchar *text = g_strdup_printf(_("Failed to save the collection:\n%s"), path);
+				g_autofree gchar *text = g_strdup_printf(_("Failed to save the collection:\n%s"), path);
 				file_util_warning_dialog(_("Save Failed"), text,
 							 GQ_ICON_DIALOG_ERROR, GENERIC_DIALOG(fd)->dialog);
-				g_free(text);
 				}
 			collection_unref(cd);
 			}
-
-		if (!has_extension) g_free(filename);
-		g_free(path);
 		}
 
 	bar_sort_add_close(sd);
@@ -792,7 +783,7 @@ void bar_sort_cold_start(LayoutWindow *lw, const gchar **attribute_names, const 
 		if (READ_INT_CLAMP_FULL("selection", selection, 0, BAR_SORT_SELECTION_COUNT - 1)) continue;
 		if (READ_CHAR_FULL("filter_key", filter_key)) continue;
 
-		log_printf("unknown attribute %s = %s\n", option, value);
+		config_file_error((std::string("Unknown attribute: ") + option + " = " + value).c_str());
 		}
 
 	lw->options.action = static_cast<SortActionType>(action);

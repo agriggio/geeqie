@@ -29,7 +29,7 @@
 ## Downloads will not be made unless the server version is newer than the local file.
 ##
 
-version="2024-04-14"
+version="2024-11-19"
 backups=3
 
 show_help()
@@ -242,11 +242,11 @@ then
 	cd "$tmp_dir" || exit 1
 
 	app=$(find "$HOME/bin/" -name "Geeqie*latest*\.AppImage" -print | sort --reverse | head -1)
-	$app --appimage-extract "usr/local/share/applications/org.geeqie.Geeqie.desktop" > /dev/null
-	$app --appimage-extract "usr/local/share/pixmaps/geeqie.png" > /dev/null
-	xdg-desktop-icon install --novendor "squashfs-root/usr/local/share/applications/org.geeqie.Geeqie.desktop"
-	xdg-icon-resource install --novendor --size 48 "squashfs-root/usr/local/share/pixmaps/geeqie.png"
-	xdg-desktop-menu install --novendor "squashfs-root/usr/local/share/applications/org.geeqie.Geeqie.desktop"
+	$app --appimage-extract "usr/share/applications/org.geeqie.Geeqie.desktop" > /dev/null
+	$app --appimage-extract "usr/share/pixmaps/geeqie.png" > /dev/null
+	xdg-desktop-icon install --novendor "squashfs-root/usr/share/applications/org.geeqie.Geeqie.desktop"
+	xdg-icon-resource install --novendor --size 48 "squashfs-root/usr/share/pixmaps/geeqie.png"
+	xdg-desktop-menu install --novendor "squashfs-root/usr/share/applications/org.geeqie.Geeqie.desktop"
 	rm --recursive --force "$tmp_dir"
 
 	exit 0
@@ -322,7 +322,7 @@ then
 		if [ ! -f "$HOME/.local/share/bash-completion/completions/geeqie" ]
 		then
 			mkdir --parents "$HOME/.local/share/bash-completion/completions/"
-			ln --symbolic "$HOME/bin/Geeqie-latest-x86_64-AppImage/squashfs-root/usr/local/share/bash-completion/completions/geeqie" "$HOME/.local/share/bash-completion/completions/geeqie"
+			ln --symbolic "$HOME/bin/Geeqie-latest-x86_64-AppImage/squashfs-root/usr/share/bash-completion/completions/geeqie" "$HOME/.local/share/bash-completion/completions/geeqie"
 		fi
 
 		cd ..
@@ -330,4 +330,13 @@ then
 	else
 		ln --symbolic --force "Geeqie$minimal-latest-$architecture.AppImage" geeqie
 	fi
+
+	# Fix problems in linuxdeploy
+	# https://github.com/linuxdeploy/linuxdeploy/issues/303
+	# https://github.com/linuxdeploy/linuxdeploy/issues/304
+	# shellcheck disable=SC2016
+	sed -i '/^this_dir/ c\this_dir=$(dirname "$(readlink -f "$BASH_SOURCE")")' "./Geeqie$minimal-latest-$architecture-AppImage/squashfs-root/AppRun"
+
+	# shellcheck disable=SC2016
+	sed -i '/^exec/ c\exec $(readlink -f $this_dir/AppRun.wrapped) "$@"' "./Geeqie$minimal-latest-$architecture-AppImage/squashfs-root/AppRun"
 fi

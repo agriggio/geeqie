@@ -36,7 +36,6 @@
 #include <glib.h>
 
 #include "cache.h"
-#include "debug.h"
 #include "filefilter.h"
 #include "main.h"
 #include "options.h"
@@ -110,7 +109,6 @@ gboolean FileData::FileList::read_list_real(const gchar *dir_path, GList **files
 {
 	DIR *dp;
 	struct dirent *dir;
-	gchar *pathl;
 	GList *dlist = nullptr;
 	GList *flist = nullptr;
 	GList *xmp_files = nullptr;
@@ -122,13 +120,12 @@ gboolean FileData::FileList::read_list_real(const gchar *dir_path, GList **files
 	if (files) *files = nullptr;
 	if (dirs) *dirs = nullptr;
 
-	pathl = path_from_utf8(dir_path);
+	g_autofree gchar *pathl = path_from_utf8(dir_path);
 	if (!pathl) return FALSE;
 
 	dp = opendir(pathl);
 	if (dp == nullptr)
 		{
-		g_free(pathl);
 		return FALSE;
 		}
 
@@ -190,8 +187,6 @@ gboolean FileData::FileList::read_list_real(const gchar *dir_path, GList **files
 		}
 
 	closedir(dp);
-
-	g_free(pathl);
 
 	if (xmp_files)
 		{
