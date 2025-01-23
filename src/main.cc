@@ -56,6 +56,10 @@
 #include "third-party/backward.h"
 #endif
 
+#ifdef HAVE_MACINTEGRATION
+# include <gtkosxapplication.h>
+#endif
+
 #include "cache-maint.h"
 #include "cache.h"
 #include "collect-io.h"
@@ -831,7 +835,7 @@ gint command_line_cache_maintenance_cb(GtkApplication *app, GApplicationCommandL
 	return ret;
 }
 
-void startup_common(GtkApplication *, gpointer)
+void startup_common(GtkApplication *app, gpointer)
 {
 	/* seg. fault handler */
 #if HAVE_DEVELOPER
@@ -1113,6 +1117,10 @@ Version: Geeqie "), VERSION, nullptr);
 		{
 		app = gtk_application_new("org.geeqie.Geeqie", static_cast<GApplicationFlags>(G_APPLICATION_HANDLES_COMMAND_LINE | G_APPLICATION_SEND_ENVIRONMENT)) ;
 		}
+
+#ifdef HAVE_MACINTEGRATION
+        g_object_new(GTKOSX_TYPE_APPLICATION, NULL);
+#endif
 
 	g_application_add_main_option_entries(G_APPLICATION(app), command_line_options);
 

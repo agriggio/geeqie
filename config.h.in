@@ -240,4 +240,7 @@
    a command-line argument to be supplied. */
 #mesondefine ENABLE_UNIT_TESTS
 
+/* Define to enable macOS integration */
+#mesondefine HAVE_MACINTEGRATION
+
 #endif

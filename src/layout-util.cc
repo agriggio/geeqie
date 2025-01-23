@@ -35,6 +35,10 @@
 
 #include <config.h>
 
+#ifdef HAVE_MACINTEGRATION
+# include <gtkosxapplication.h>
+#endif
+
 #include "advanced-exif.h"
 #include "archives.h"
 #include "bar-keywords.h"
@@ -3159,7 +3163,7 @@ void layout_actions_setup(LayoutWindow *lw)
 
 
 	lw->ui_manager = gq_gtk_ui_manager_new();
-	gq_gtk_ui_manager_set_add_tearoffs(lw->ui_manager, TRUE);
+	//gq_gtk_ui_manager_set_add_tearoffs(lw->ui_manager, TRUE);
 	gq_gtk_ui_manager_insert_action_group(lw->ui_manager, lw->action_group, 0);
 
 	DEBUG_1("%s layout_actions_setup: add menu", get_exec_time());
@@ -3170,6 +3174,14 @@ void layout_actions_setup(LayoutWindow *lw)
 		g_message("building menus failed: %s", error->message);
 		exit(EXIT_FAILURE);
 		}
+#ifdef HAVE_MACINTEGRATION
+        if (!options->hamburger_menu) {
+            GtkWidget *menubar = layout_actions_menu_bar(lw);
+            gtk_widget_hide(menubar);
+            gtkosx_application_set_menu_bar(gtkosx_application_get(), GTK_MENU_SHELL(menubar));
+            gtkosx_application_set_use_quartz_accelerators(gtkosx_application_get(), FALSE);
+        }
+#endif // HAVE_MACINTEGRATION
 
 	DEBUG_1("%s layout_actions_setup: marks", get_exec_time());
 	layout_actions_setup_marks(lw);
@@ -3305,12 +3317,14 @@ GtkWidget *layout_actions_menu_tool_bar(LayoutWindow *lw)
 	DEBUG_NAME(toolbar);
 	lw->menu_tool_bar = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
 
+#ifndef HAVE_MACINTEGRATION
 	if (!options->hamburger_menu)
 		{
 		menu_bar = layout_actions_menu_bar(lw);
 		DEBUG_NAME(menu_bar);
 		gq_gtk_box_pack_start(GTK_BOX(lw->menu_tool_bar), menu_bar, FALSE, FALSE, 0);
 		}
+#endif // HAVE_MACINTEGRATION
 
 	gq_gtk_box_pack_start(GTK_BOX(lw->menu_tool_bar), toolbar, FALSE, FALSE, 0);
 

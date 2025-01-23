@@ -627,6 +627,22 @@ else
     summary({'webp' : ['disabled - webp files supported:', false]}, section : 'Configuration', bool_yn : true)
 endif
 
+
+# mac integration test
+conf_data.set('HAVE_MACINTEGRATION', 0)
+option = get_option('macintegration')
+if not option.disabled()
+    macintegration_dep = dependency('gtk-mac-integration-gtk3', required: get_option('macintegration'))
+    if macintegration_dep.found()
+        conf_data.set('HAVE_MACINTEGRATION', 1)
+        summary({'macintegration' : ['macOS integration supported:', true]}, section : 'Configuration', bool_yn : true)
+    else
+        summary({'macintegration' : ['gtk-mac-integration not found - macOS integration supported:', false]}, section : 'Configuration', bool_yn : true)
+    endif
+else
+    summary({'macintegration' : ['disabled - macOS integration supported:', false]}, section : 'Configuration', bool_yn : true)
+endif
+
 # Check for nl_langinfo and _NL_TIME_FIRST_WEEKDAY
 conf_data.set('HAVE__NL_TIME_FIRST_WEEKDAY', 0)
 code = '''#include <langinfo.h>
@@ -916,3 +932,4 @@ if conf_data.get('ENABLE_UNIT_TESTS', 0) == 1
 else
     summary({'unit_tests' : ['Tests run:', false]}, section : 'Testing', bool_yn : true)
 endif
+

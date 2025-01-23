@@ -52,3 +52,4 @@ option('unit_tests', type : 'feature', value : 'disabled', description : 'unit t
 option('videothumbnailer', type : 'feature', value : 'auto', description : 'video thumbnailer')
 option('webp', type : 'feature', value : 'auto', description : 'webp')
 option('yelp-build', type : 'feature', value : 'auto', description : 'help files')
+option('macintegration', type : 'feature', value : 'auto', description : 'macOS integration')

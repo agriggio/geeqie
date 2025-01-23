@@ -372,11 +372,13 @@ static GtkWidget *layout_tool_setup(LayoutWindow *lw)
 		scroll_window = gq_gtk_scrolled_window_new(nullptr, nullptr);
 		gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(scroll_window), GTK_POLICY_AUTOMATIC, GTK_POLICY_NEVER);
 
+#ifndef HAVE_MACINTEGRATION
 		if (!options->hamburger_menu)
 			{
 			menu_bar = layout_actions_menu_bar(lw);
 			gq_gtk_box_pack_start(GTK_BOX(menu_toolbar_box), menu_bar, FALSE, FALSE, 0);
 			}
+#endif // HAVE_MACINTEGRATION
 
 		toolbar = layout_actions_toolbar(lw, TOOLBAR_MAIN);
 
