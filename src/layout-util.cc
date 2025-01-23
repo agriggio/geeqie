@@ -35,7 +35,7 @@
 
 #include <config.h>
 
-#ifdef HAVE_MACINTEGRATION
+#if HAVE_MACINTEGRATION
 # include <gtkosxapplication.h>
 #endif
 
@@ -3174,7 +3174,7 @@ void layout_actions_setup(LayoutWindow *lw)
 		g_message("building menus failed: %s", error->message);
 		exit(EXIT_FAILURE);
 		}
-#ifdef HAVE_MACINTEGRATION
+#if HAVE_MACINTEGRATION
         if (!options->hamburger_menu) {
             GtkWidget *menubar = layout_actions_menu_bar(lw);
             gtk_widget_hide(menubar);
@@ -3317,7 +3317,7 @@ GtkWidget *layout_actions_menu_tool_bar(LayoutWindow *lw)
 	DEBUG_NAME(toolbar);
 	lw->menu_tool_bar = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
 
-#ifndef HAVE_MACINTEGRATION
+#if !HAVE_MACINTEGRATION
 	if (!options->hamburger_menu)
 		{
 		menu_bar = layout_actions_menu_bar(lw);

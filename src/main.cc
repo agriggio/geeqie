@@ -56,7 +56,7 @@
 #include "third-party/backward.h"
 #endif
 
-#ifdef HAVE_MACINTEGRATION
+#if HAVE_MACINTEGRATION
 # include <gtkosxapplication.h>
 #endif
 
@@ -1118,7 +1118,7 @@ Version: Geeqie "), VERSION, nullptr);
 		app = gtk_application_new("org.geeqie.Geeqie", static_cast<GApplicationFlags>(G_APPLICATION_HANDLES_COMMAND_LINE | G_APPLICATION_SEND_ENVIRONMENT)) ;
 		}
 
-#ifdef HAVE_MACINTEGRATION
+#if HAVE_MACINTEGRATION
         g_object_new(GTKOSX_TYPE_APPLICATION, NULL);
 #endif
 
