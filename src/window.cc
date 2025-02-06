@@ -30,6 +30,16 @@
 
 #include <config.h>
 
+#ifdef __APPLE__
+#  include <ApplicationServices/ApplicationServices.h>
+#endif 
+
+#include <gdk/gdkconfig.h>
+#ifdef GDK_WINDOWING_QUARTZ
+# include <gdk/gdkquartz.h>
+#endif
+
+
 #include "intl.h"
 #include "main-defines.h"
 #include "main.h"
@@ -106,6 +116,17 @@ gchar *HtmlBrowser::command_result() const
 	return result;
 }
 
+void window_realize_cb(GtkWidget *win, gpointer)
+{
+#if defined(__APPLE__) && defined(GDK_WINDOWING_QUARTZ)
+    const gchar *val = g_getenv("GEEQIE_GDK_QUARTZ_COLORSPACE_DISPLAYP3");
+    if (val && atoi(val)) {
+        GdkWindow *w = gtk_widget_get_window(win);
+        g_object_set_data(G_OBJECT(w), "gdk-quartz-colorspace", (gpointer)kCGColorSpaceDisplayP3);
+    }
+#endif
+}
+
 } // namespace
 
 GtkWidget *window_new(const gchar *role, const gchar *icon, const gchar *icon_file, const gchar *subtitle)
@@ -139,6 +160,8 @@ GtkWidget *window_new(const gchar *role, const gchar *icon, const gchar *icon_fi
 		gtk_window_set_decorated(GTK_WINDOW(window), FALSE);
 		}
 
+        g_signal_connect(G_OBJECT(window), "realize",
+                         G_CALLBACK(window_realize_cb), NULL);
 	return window;
 }
 

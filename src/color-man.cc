@@ -189,7 +189,7 @@ static ColorManCache *color_man_cache_new(ColorManProfileType in_type, const gch
 					   (has_alpha) ? TYPE_RGBA_8 : TYPE_RGB_8,
 					   cc->profile_out,
 					   (has_alpha) ? TYPE_RGBA_8 : TYPE_RGB_8,
-					   options->color_profile.render_intent, cmsFLAGS_BLACKPOINTCOMPENSATION);
+					   options->color_profile.render_intent, cmsFLAGS_BLACKPOINTCOMPENSATION|cmsFLAGS_NOOPTIMIZE|cmsFLAGS_NOCACHE);
 
 	if (!cc->transform)
 		{
